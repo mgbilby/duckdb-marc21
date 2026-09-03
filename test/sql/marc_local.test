@@ -1,0 +1,61 @@
+# name: test/sql/marc_local.test
+# description: local-field templating (marc_add_local) and provenance stamping (marc_stamp)
+# group: [marc]
+
+require marc21
+
+statement ok
+SET VARIABLE utf8 = 'test/data/sample_utf8.mrc';
+
+# marc_add_local builds the field from parallel code/value lists and inserts
+# it in tag order: 590 lands between 245 and the 650s of record 1 (9 fields).
+query IIII
+SELECT len(f2), f2[7].tag, f2[7].subfields[1].code, f2[7].subfields[1].value
+FROM (SELECT marc_add_local(fields, '590', ' ', ' ',
+                            ['a'], ['Local bound copy']) AS f2
+      FROM read_marc(getvariable('utf8')) WHERE record_no = 1);
+----
+10	590	a	Local bound copy
+
+# Multi-subfield template with explicit indicators; record 3 (001, 245) grows
+# a trailing 949.
+query IIIII
+SELECT f2[3].tag, f2[3].ind1, f2[3].ind2, len(f2[3].subfields),
+       f2[3].subfields[2].code || '=' || f2[3].subfields[2].value
+FROM (SELECT marc_add_local(fields, '949', '1', '0',
+                            ['a', 'b', 'c'], ['MAIN', 'STACKS', 'IN']) AS f2
+      FROM read_marc(getvariable('utf8')) WHERE record_no = 3);
+----
+949	1	0	3	b=STACKS
+
+# The original fields are untouched (edits are value-level, not in place).
+query II
+SELECT len(fields),
+       len(marc_add_local(fields, '590', ' ', ' ', ['a'], ['x'])) - len(fields)
+FROM read_marc(getvariable('utf8')) WHERE record_no = 3;
+----
+2	1
+
+# marc_stamp: 949 blank indicators, $a org code, $d today.  The date value is
+# asserted structurally only (YYYY-MM-DD), never as a literal.
+query IIIII
+SELECT f2[3].tag,
+       f2[3].ind1 = ' ' AND f2[3].ind2 = ' ',
+       f2[3].subfields[1].code || '=' || f2[3].subfields[1].value,
+       f2[3].subfields[2].code,
+       regexp_matches(f2[3].subfields[2].value, '^\d{4}-\d{2}-\d{2}$')
+FROM (SELECT marc_stamp(fields, 'XX-DuckU') AS f2
+      FROM read_marc(getvariable('utf8')) WHERE record_no = 3);
+----
+949	true	a=XX-DuckU	d	true
+
+# Templating composes: stamp on top of a local note.
+query II
+SELECT len(f2), list_transform(f2, lambda f: f.tag)[3] || ',' ||
+       list_transform(f2, lambda f: f.tag)[4]
+FROM (SELECT marc_stamp(marc_add_local(fields, '590', ' ', ' ',
+                                       ['a'], ['Gift of A. Duck']),
+                        'XX-DuckU') AS f2
+      FROM read_marc(getvariable('utf8')) WHERE record_no = 3);
+----
+4	590,949

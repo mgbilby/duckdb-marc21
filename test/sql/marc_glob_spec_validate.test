@@ -1,0 +1,66 @@
+# name: test/sql/marc_glob_spec_validate.test
+# description: glob expansion, marc_spec paths, marc_validate
+# group: [marc]
+
+require marc21
+
+statement ok
+SET VARIABLE utf8 = 'test/data/sample_utf8.mrc';
+
+# Glob over sample_marc8.mrc (1 record, 7 rows), sample_multiscript.mrc
+# (1, 7) and sample_utf8.mrc (3, 27); record_no is 1-based per file.
+query II
+SELECT count(DISTINCT (file, record_no)), count(*)
+FROM read_marc_subfields('test/data/sample_*.mrc');
+----
+5	41
+
+# A pattern matching nothing is an error, not an empty result
+statement error
+SELECT * FROM read_marc_subfields('test/data/no_such_*.mrc');
+----
+No files found that match the pattern
+
+# MARCspec paths (full scalar: tags, wildcards, LDR, positions, indicators)
+query III
+SELECT marc_spec(leader, fields, '001')[1],
+       marc_spec(leader, fields, '245$a')[1],
+       len(marc_spec(leader, fields, '650'))
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+ocm00000001	Łódź and the river :	3
+
+query IIII
+SELECT marc_spec(leader, fields, 'LDR/6')[1],
+       marc_spec(leader, fields, '008/35-37')[1],
+       marc_spec(leader, fields, '650[1]$a')[1],
+       marc_spec(leader, fields, '650[#]^2')[1]
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+a	eng	Cities and towns	7
+
+statement error
+SELECT marc_spec(leader, fields, '245{$a}') FROM read_marc(getvariable('utf8'));
+----
+subspecs not supported
+
+# Structural validation: all fixture records pass
+query I
+SELECT sum(len(marc_validate(leader, fields)))
+FROM read_marc(getvariable('utf8'));
+----
+0
+
+# ... and a truncated leader is reported
+query I
+SELECT marc_validate(substr(leader, 1, 23), fields)[1]
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+leader is 23 chars, expected 24
+
+# Whole-record breaker rendering round-trips the title line
+query I
+SELECT marc_recordbreak(leader, fields) LIKE '%=245  10$aŁódź and the river :$ba study /$cAnna Müller.%'
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+true

@@ -1,0 +1,106 @@
+# name: test/sql/marc_crosswalks.test
+# description: Dublin Core / MODS crosswalks and linked-data ($0/$1) macros
+# group: [marc]
+
+require marc21
+
+statement ok
+SET VARIABLE utf8 = 'test/data/sample_utf8.mrc';
+
+# Dublin Core scalars for record 1: date falls back to 008/07-10, type comes
+# from Leader/06.
+query IIIII
+SELECT struct_extract(dc, 'title'),
+       struct_extract(dc, 'creator'),
+       struct_extract(dc, 'date'),
+       struct_extract(dc, 'type'),
+       struct_extract(dc, 'language')
+FROM (SELECT marc_dublin_core(leader, fields) AS dc
+      FROM read_marc(getvariable('utf8')) WHERE record_no = 1);
+----
+Łódź and the river : a study	Müller, Anna	2020	text	eng
+
+# DC lists: subjects keep record order (trimmed), identifiers collect 020/022/856$u.
+query IIII
+SELECT len(struct_extract(dc, 'subject')),
+       struct_extract(dc, 'subject')[3],
+       len(struct_extract(dc, 'identifier')),
+       struct_extract(dc, 'identifier')[1]
+FROM (SELECT marc_dublin_core(leader, fields) AS dc
+      FROM read_marc(getvariable('utf8')) WHERE record_no = 1);
+----
+3	Rivers	1	9780000000001
+
+# Record 2 has no 008/041: language and date are NULL; 856$u is its identifier.
+query III
+SELECT struct_extract(dc, 'language') IS NULL,
+       struct_extract(dc, 'date') IS NULL,
+       struct_extract(dc, 'identifier')[1]
+FROM (SELECT marc_dublin_core(leader, fields) AS dc
+      FROM read_marc(getvariable('utf8')) WHERE record_no = 2);
+----
+true	true	https://example.org/x
+
+# XML escaping helper.
+query I
+SELECT marc_xml_escape('a & b <c> "d"');
+----
+a &amp; b &lt;c&gt; &quot;d&quot;
+
+# The sparsest record renders to a complete, minimal MODS document.
+query I
+SELECT marc_mods_xml(leader, fields)
+FROM read_marc(getvariable('utf8')) WHERE record_no = 3;
+----
+<mods xmlns="http://www.loc.gov/mods/v3"><titleInfo><title>The empty record</title></titleInfo><typeOfResource>text</typeOfResource></mods>
+
+# Record 1 MODS carries title, name, language, subjects and a typed identifier.
+query IIIII
+SELECT x LIKE '%<titleInfo><title>Łódź and the river : a study</title></titleInfo>%',
+       x LIKE '%<name><namePart>Müller, Anna</namePart></name>%',
+       x LIKE '%<language><languageTerm type="code" authority="iso639-2b">eng</languageTerm></language>%',
+       x LIKE '%<subject><topic>Cities and towns</topic></subject>%',
+       x LIKE '%<identifier type="isbn">9780000000001</identifier>%'
+FROM (SELECT marc_mods_xml(leader, fields) AS x
+      FROM read_marc(getvariable('utf8')) WHERE record_no = 1);
+----
+true	true	true	true	true
+
+# Linked data: record 1's only $0 is the non-URI FAST identifier.
+query III
+SELECT len(marc_uris(fields)),
+       len(marc_ids_lc(fields)),
+       marc_ids_fast(fields)[1]
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+0	0	(OCoLC)fst01098319
+
+# URI-shaped $0/$1 values are collected with their tag and code.
+query IIIII
+SELECT len(u),
+       struct_extract(u[1], 'tag'),
+       struct_extract(u[1], 'uri'),
+       struct_extract(u[2], 'tag'),
+       struct_extract(u[2], 'code')
+FROM (SELECT marc_uris([
+    struct_pack(tag := '100', ind1 := '1', ind2 := ' ', value := NULL::VARCHAR,
+                subfields := [struct_pack(code := 'a', value := 'X'),
+                              struct_pack(code := '1', value := 'http://viaf.org/viaf/123')]),
+    struct_pack(tag := '650', ind1 := ' ', ind2 := '0', value := NULL::VARCHAR,
+                subfields := [struct_pack(code := 'a', value := 'Y'),
+                              struct_pack(code := '0', value := 'http://id.loc.gov/authorities/subjects/sh85114250')])]) AS u);
+----
+2	100	http://viaf.org/viaf/123	650	0
+
+# Source-specific filters split the same record's $0/$1 values.
+query II
+SELECT marc_ids_lc(f)[1], marc_ids_viaf(f)[1]
+FROM (SELECT [
+    struct_pack(tag := '100', ind1 := '1', ind2 := ' ', value := NULL::VARCHAR,
+                subfields := [struct_pack(code := 'a', value := 'X'),
+                              struct_pack(code := '1', value := 'http://viaf.org/viaf/123')]),
+    struct_pack(tag := '650', ind1 := ' ', ind2 := '0', value := NULL::VARCHAR,
+                subfields := [struct_pack(code := 'a', value := 'Y'),
+                              struct_pack(code := '0', value := 'http://id.loc.gov/authorities/subjects/sh85114250')])] AS f);
+----
+http://id.loc.gov/authorities/subjects/sh85114250	http://viaf.org/viaf/123

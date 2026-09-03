@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/">
+  <responseDate>2026-09-02T00:00:00Z</responseDate>
+  <ListRecords>
+    <record>
+      <header><identifier>oai:x:1</identifier><datestamp>2026-01-01</datestamp></header>
+      <metadata>
+        <record xmlns="http://www.loc.gov/MARC21/slim">
+          <leader>00109nam a2200061 a 4500</leader>
+          <controlfield tag="001">oai-1</controlfield>
+          <datafield tag="245" ind1="1" ind2="0">
+            <subfield code="a">OAI record one</subfield>
+          </datafield>
+        </record>
+      </metadata>
+    </record>
+    <record>
+      <header status="deleted"><identifier>oai:x:2</identifier></header>
+    </record>
+    <record>
+      <header><identifier>oai:x:3</identifier></header>
+      <metadata>
+        <record xmlns="http://www.loc.gov/MARC21/slim">
+          <leader>00109nam a2200061 a 4500</leader>
+          <controlfield tag="001">oai-3</controlfield>
+          <datafield tag="245" ind1="0" ind2="0">
+            <subfield code="a">OAI record three</subfield>
+          </datafield>
+        </record>
+      </metadata>
+    </record>
+  </ListRecords>
+</OAI-PMH>

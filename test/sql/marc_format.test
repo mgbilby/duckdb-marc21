@@ -1,0 +1,49 @@
+# name: test/sql/marc_format.test
+# description: marc_format from Leader/06; marc_validate skips the 245 check for non-bibliographic formats
+# group: [marc]
+
+require marc21
+
+# Leader/06 is the 7th character: bib 'a', authority 'z', holdings 'u v x y',
+# classification 'w', community 'q'.
+query I
+SELECT marc_format('00000nam a2200000 a 4500');
+----
+bibliographic
+
+query I
+SELECT marc_format('00000nz  a2200000 a 4500');
+----
+authority
+
+query IIII
+SELECT marc_format('00000nu  a2200000 a 4500'),
+       marc_format('00000nv  a2200000 a 4500'),
+       marc_format('00000nx  a2200000 a 4500'),
+       marc_format('00000ny  a2200000 a 4500');
+----
+holdings	holdings	holdings	holdings
+
+query II
+SELECT marc_format('00000nw  a2200000 a 4500'),
+       marc_format('00000nq  a2200000 a 4500');
+----
+classification	community
+
+# An authority record has no 245 and must still validate clean.
+query I
+SELECT len(marc_validate('00000nz  a2200000 a 4500',
+    [struct_pack(tag := '110', ind1 := '2', ind2 := ' ',
+                 value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := 'Some corporate name')])]));
+----
+0
+
+# The same fields under a bibliographic leader still flag the missing 245.
+query II
+SELECT len(v), v[1] FROM (SELECT marc_validate('00000nam a2200000 a 4500',
+    [struct_pack(tag := '110', ind1 := '2', ind2 := ' ',
+                 value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := 'Some corporate name')])]) AS v);
+----
+1	no 245 (title) field

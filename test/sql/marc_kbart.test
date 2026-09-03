@@ -1,0 +1,139 @@
+# name: test/sql/marc_kbart.test
+# description: KBART holdings ingest (marc_read_kbart, marc_kbart_856, marc_kbart_to_marc) and 856 URL extraction
+# group: [marc]
+
+require marc21
+
+statement ok
+SET VARIABLE utf8 = 'test/data/sample_utf8.mrc';
+
+# Write a tiny KBART TSV in the test directory (the repo carries no vendor
+# fixture): two titles, one ISSN-identified serial, one ISBN-identified book.
+statement ok
+COPY (SELECT * FROM (VALUES
+        ('Journal of Ducks', '1940-5758', '2049-3630',
+         'https://example.org/jod', 'Pond Press'),
+        ('Duck Monographs', '0-306-40615-2', '9780306406157',
+         'https://example.org/dm', 'Pond Press'))
+      AS t(publication_title, print_identifier, online_identifier,
+           title_url, publisher_name))
+TO '__TEST_DIR__/kbart.tsv' (FORMAT csv, DELIMITER e'\t', HEADER true);
+
+# marc_read_kbart passes the file's columns through with original names.
+query III
+SELECT publication_title, online_identifier, publisher_name
+FROM marc_read_kbart('__TEST_DIR__/kbart.tsv')
+ORDER BY publication_title;
+----
+Duck Monographs	9780306406157	Pond Press
+Journal of Ducks	2049-3630	Pond Press
+
+# all_varchar: identifier columns stay text, never numbers.
+query II
+SELECT typeof(print_identifier), typeof(online_identifier)
+FROM marc_read_kbart('__TEST_DIR__/kbart.tsv') LIMIT 1;
+----
+VARCHAR	VARCHAR
+
+# marc_kbart_856 builds an 856 40 $u $z field struct.
+query IIIII
+SELECT f.tag, f.ind1, f.ind2,
+       f.subfields[1].code || '=' || f.subfields[1].value,
+       f.subfields[2].code || '=' || f.subfields[2].value
+FROM (SELECT marc_kbart_856('https://example.org/x', 'Full text') AS f);
+----
+856	4	0	u=https://example.org/x	z=Full text
+
+# A NULL note drops the $z entirely.
+query II
+SELECT len(f.subfields), f.subfields[1].code
+FROM (SELECT marc_kbart_856('https://example.org/x', NULL) AS f);
+----
+1	u
+
+# marc_kbart_to_marc, ISSN branch: leader + 022/245/260/856.
+query IIIIII
+SELECT r.leader, len(r.fields),
+       marc_subfield(r.fields, '022', 'a'),
+       marc_subfield(r.fields, '245', 'a'),
+       marc_subfield(r.fields, '260', 'b'),
+       marc_subfield(r.fields, '856', 'u')
+FROM (SELECT marc_kbart_to_marc('Journal of Ducks', '2049-3630',
+                                'https://example.org/jod', 'Pond Press') AS r);
+----
+00000nam a2200000 a 4500	4	2049-3630	Journal of Ducks	Pond Press	https://example.org/jod
+
+# ISBN branch: an ISBN-10 identifier normalizes to ISBN-13 in 020, no 022;
+# NULL url and publisher drop their fields.
+query III
+SELECT len(r.fields),
+       marc_subfield(r.fields, '020', 'a'),
+       marc_subfield(r.fields, '022', 'a') IS NULL
+FROM (SELECT marc_kbart_to_marc('Duck Monographs', '0-306-40615-2', NULL, NULL) AS r);
+----
+2	9780306406157	true
+
+# An identifier that is neither a valid ISSN nor ISBN produces no 020/022.
+query I
+SELECT list_transform(r.fields, lambda f: f.tag)[1]
+FROM (SELECT marc_kbart_to_marc('T', 'not-an-id', 'https://e.org', NULL) AS r);
+----
+245
+
+# End to end: TSV rows -> records -> ISO 2709 -> read back structurally valid.
+statement ok
+COPY (SELECT r.leader AS leader, r.fields AS fields
+      FROM (SELECT marc_kbart_to_marc(publication_title, online_identifier,
+                                      title_url, publisher_name) AS r
+            FROM marc_read_kbart('__TEST_DIR__/kbart.tsv')))
+TO '__TEST_DIR__/kbart.mrc' (FORMAT marc);
+
+query III
+SELECT marc_subfield(fields, '245', 'a'),
+       marc_subfield(fields, '856', 'u'),
+       len(marc_validate(leader, fields))
+FROM read_marc('__TEST_DIR__/kbart.mrc')
+ORDER BY 1;
+----
+Duck Monographs	https://example.org/dm	0
+Journal of Ducks	https://example.org/jod	0
+
+# ---------------------------------------------------------------------------
+# marc_urls_856 (link-audit extraction; the audit workflow with the community
+# http_client extension is in docs/RECIPES.md)
+# ---------------------------------------------------------------------------
+
+# Fixture record 2 carries 856 40 $u $z.
+query IIII
+SELECT len(u), u[1].uri, u[1].link_text, u[1].materials IS NULL
+FROM (SELECT marc_urls_856(fields) AS u
+      FROM read_marc(getvariable('utf8')) WHERE record_no = 2);
+----
+1	https://example.org/x	Full text	true
+
+# Records without an 856 yield an empty list.
+query I
+SELECT len(marc_urls_856(fields))
+FROM read_marc(getvariable('utf8')) WHERE record_no = 3;
+----
+0
+
+# $y beats $z for link_text; $3 fills materials.
+query III
+SELECT u[1].uri, u[1].link_text, u[1].materials
+FROM (SELECT marc_urls_856([
+        struct_pack(tag := '856', ind1 := '4', ind2 := '1', value := NULL::VARCHAR,
+                    subfields := [struct_pack(code := '3', value := 'v.1'),
+                                  struct_pack(code := 'u', value := 'https://example.org/v1'),
+                                  struct_pack(code := 'y', value := 'View volume 1'),
+                                  struct_pack(code := 'z', value := 'Restricted')])]) AS u);
+----
+https://example.org/v1	View volume 1	v.1
+
+# An 856 without $u is skipped.
+query I
+SELECT len(marc_urls_856([
+    struct_pack(tag := '856', ind1 := '4', ind2 := '2', value := NULL::VARCHAR,
+                subfields := [struct_pack(code := 'z', value := 'Related site')])]));
+----
+0

@@ -1,0 +1,52 @@
+# name: test/sql/read_marc_raw.test
+# description: Raw bytes + error column; malformed input handling
+# group: [marc]
+
+require marc21
+
+statement ok
+SET VARIABLE bad = 'test/data/malformed.mrc';
+
+# All three records are surfaced; the corrupt one carries an error instead of failing the scan
+query III
+SELECT record_no, control_number, error IS NULL AS ok FROM read_marc_raw(getvariable('bad')) ORDER BY record_no;
+----
+1	ocm00000003	true
+2	NULL	false
+3	ocm00000003	true
+
+query I
+SELECT error FROM read_marc_raw(getvariable('bad')) WHERE record_no = 2;
+----
+non-numeric directory entry for tag 001
+
+# Raw bytes are the original ISO 2709 bytes (leader length field == blob length)
+query I
+SELECT bool_and(CAST(substr(leader, 1, 5) AS INTEGER) = octet_length(raw))
+FROM read_marc_raw(getvariable('bad')) WHERE error IS NULL;
+----
+true
+
+# Every raw record ends with the record terminator 0x1D
+query I
+SELECT bool_and(raw[-1:] = '\x1D'::BLOB) FROM read_marc_raw(getvariable('bad'));
+----
+true
+
+# The subfield reader fails fast on the same file...
+statement error
+SELECT count(*) FROM read_marc_subfields(getvariable('bad'));
+----
+record 2: non-numeric directory entry
+
+# ...unless told to skip bad records
+query I
+SELECT count(DISTINCT record_no) FROM read_marc_subfields(getvariable('bad'), ignore_errors := true);
+----
+2
+
+# Missing file is a clean error
+statement error
+SELECT * FROM read_marc_raw('test/data/does-not-exist.mrc');
+----
+Cannot open file

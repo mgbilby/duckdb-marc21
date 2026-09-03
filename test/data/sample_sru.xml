@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<zs:searchRetrieveResponse xmlns:zs="http://www.loc.gov/zing/srw/">
+  <zs:version>1.1</zs:version>
+  <zs:numberOfRecords>2</zs:numberOfRecords>
+  <zs:records>
+    <zs:record>
+      <zs:recordSchema>marcxml</zs:recordSchema>
+      <zs:recordData>
+        <record xmlns="http://www.loc.gov/MARC21/slim">
+          <leader>00109nam a2200061 a 4500</leader>
+          <controlfield tag="001">sru-1</controlfield>
+          <datafield tag="245" ind1="1" ind2="0">
+            <subfield code="a">SRU record one</subfield>
+          </datafield>
+        </record>
+      </zs:recordData>
+    </zs:record>
+    <zs:record>
+      <zs:recordData>
+        <record xmlns="http://www.loc.gov/MARC21/slim">
+          <leader>00109nam a2200061 a 4500</leader>
+          <controlfield tag="001">sru-2</controlfield>
+          <datafield tag="245" ind1="0" ind2="0">
+            <subfield code="a">SRU record two</subfield>
+          </datafield>
+        </record>
+      </zs:recordData>
+    </zs:record>
+  </zs:records>
+</zs:searchRetrieveResponse>

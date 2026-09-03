@@ -1,0 +1,44 @@
+# name: test/sql/marc8.test
+# description: MARC-8 (ANSEL) decoding with combining-mark reordering
+# group: [marc]
+
+require marc21
+
+statement ok
+SET VARIABLE m8 = 'test/data/sample_marc8.mrc';
+
+# Leader/09 is blank -> auto-detected as MARC-8
+query I
+SELECT marc_encoding_scheme(any_value(leader)) FROM read_marc_subfields(getvariable('m8'));
+----
+marc8
+
+query III
+SELECT tag, code, value FROM read_marc_subfields(getvariable('m8'))
+WHERE tag >= '010' ORDER BY field_no, subfield_no;
+----
+100	a	Müller, Anna,
+100	e	author.
+245	a	Łódź and the café :
+245	b	Ærø & Øresund /
+650	a	Naïve art
+650	v	Exhibitions.
+
+# Output is NFC-normalised: "ü" is a single code point, not u + U+0308
+query I
+SELECT length(value) FROM read_marc_subfields(getvariable('m8')) WHERE tag = '100' AND code = 'a';
+----
+13
+
+# Forcing utf8 on MARC-8 data produces replacement characters rather than an error
+query I
+SELECT value LIKE '%' || chr(65533) || '%'
+FROM read_marc_subfields(getvariable('m8'), encoding := 'utf8')
+WHERE tag = '245' AND code = 'a';
+----
+true
+
+statement error
+SELECT * FROM read_marc_subfields(getvariable('m8'), encoding := 'latin1');
+----
+unknown encoding

@@ -1,0 +1,35 @@
+# name: test/sql/read_marc_breaker.test
+# description: MARC breaker (.mrk) text reader
+# group: [marc]
+
+require marc21
+
+statement ok
+SET VARIABLE mrk = 'test/data/sample.mrk';
+
+# Same records as sample_utf8.mrc: 3 records, 27 subfield rows
+query II
+SELECT count(DISTINCT record_no), count(*) FROM read_marc_breaker(getvariable('mrk'));
+----
+3	27
+
+# Blank indicators written as backslash come back as spaces
+query II
+SELECT ind1 = ' ', ind2 = ' ' FROM read_marc_breaker(getvariable('mrk'))
+WHERE tag = '020' AND subfield_no = 1;
+----
+true	true
+
+# Nested macro layered on top
+query I
+SELECT marc_subfield(fields, '245', 'a')
+FROM marc_readnestedbreaker(getvariable('mrk')) ORDER BY record_no;
+----
+Łódź and the river :
+日本の歴史 /
+The empty record.
+
+query I
+SELECT count(*) FROM read_marc_breaker(getvariable('mrk'), tags := '650');
+----
+8

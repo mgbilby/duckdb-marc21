@@ -1,0 +1,100 @@
+# name: test/sql/marc_authority.test
+# description: authority cross-references (marc_authority_refs, marc_heading_flips) and bib heading extraction (marc_headings)
+# group: [marc]
+
+require marc21
+
+statement ok
+SET VARIABLE utf8 = 'test/data/sample_utf8.mrc';
+
+# Inline authority record (leader/06 = 'z'): 1XX authorized heading, 4XX see
+# from (with a $w tracing control that must not leak into the heading), 5XX
+# see also.
+statement ok
+CREATE VIEW auth AS SELECT
+    '00000nz  a2200000 a 4500' AS leader,
+    [struct_pack(tag := '100', ind1 := '1', ind2 := ' ', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := 'Twain, Mark,'),
+                               struct_pack(code := 'd', value := '1835-1910')]),
+     struct_pack(tag := '400', ind1 := '1', ind2 := ' ', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'w', value := 'nna'),
+                               struct_pack(code := 'a', value := 'Clemens, Samuel Langhorne,'),
+                               struct_pack(code := 'd', value := '1835-1910')]),
+     struct_pack(tag := '500', ind1 := '1', ind2 := ' ', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := 'Snodgrass, Quintus Curtius,'),
+                               struct_pack(code := 'd', value := '1835-1910')])] AS fields;
+
+# One ref per 1XX/4XX/5XX, in record order, headings joined with ' '.
+query III
+SELECT r.kind, r.tag, r.heading
+FROM (SELECT unnest(marc_authority_refs(leader, fields)) AS r FROM auth);
+----
+authorized	100	Twain, Mark, 1835-1910
+see_from	400	Clemens, Samuel Langhorne, 1835-1910
+see_also	500	Snodgrass, Quintus Curtius, 1835-1910
+
+# A bibliographic leader yields no refs (bib 4XX/5XX are series/notes).
+query I
+SELECT len(marc_authority_refs(leader, fields))
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+0
+
+# Heading flips: the bib form NACO-matches the 400 see-from despite trailing
+# punctuation differences; the unrelated heading does not flip.
+query III
+SELECT len(fl), fl[1].heading, fl[1].authorized
+FROM (SELECT marc_heading_flips(
+                 ['Clemens, Samuel Langhorne, 1835-1910.', 'Dickens, Charles,'],
+                 marc_authority_refs(leader, fields)) AS fl
+      FROM auth);
+----
+1	Clemens, Samuel Langhorne, 1835-1910.	Twain, Mark, 1835-1910
+
+# see_also tracings never produce flips.
+query I
+SELECT len(marc_heading_flips(['Snodgrass, Quintus Curtius, 1835-1910'],
+                              marc_authority_refs(leader, fields)))
+FROM auth;
+----
+0
+
+# ---------------------------------------------------------------------------
+# marc_headings / marc_headings_naco over the bib fixture
+# ---------------------------------------------------------------------------
+
+# Record 1: the 100 and the three 650s, in record order; control subfields
+# ($0/$2) stay out of the heading string.
+query IIII
+SELECT len(h), h[1], h[2], h[4]
+FROM (SELECT marc_headings(fields) AS h
+      FROM read_marc(getvariable('utf8')) WHERE record_no = 1);
+----
+4	Müller, Anna, 1970- author.	Rivers Poland Łódź.	Rivers.
+
+# NACO-normalized variant: diacritics fold, punctuation drops, commas space.
+query II
+SELECT marc_headings_naco(fields)[1], marc_headings_naco(fields)[2]
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+MULLER ANNA 1970 AUTHOR	RIVERS POLAND LODZ
+
+# Records without 1XX/6XX/7XX heading fields yield empty lists (880/856 and a
+# bare 245 do not count).
+query II
+SELECT record_no, len(marc_headings(fields))
+FROM read_marc(getvariable('utf8')) WHERE record_no > 1
+ORDER BY record_no;
+----
+2	0
+3	0
+
+# marc_heading_join on one inline field keeps only alphabetic non-$w codes.
+query I
+SELECT marc_heading_join(
+    struct_pack(tag := '650', ind1 := ' ', ind2 := '0', value := NULL::VARCHAR,
+                subfields := [struct_pack(code := 'a', value := 'Ducks'),
+                              struct_pack(code := 'x', value := 'History'),
+                              struct_pack(code := '0', value := 'sh0000')]));
+----
+Ducks History

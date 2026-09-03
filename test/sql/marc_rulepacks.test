@@ -1,0 +1,108 @@
+# name: test/sql/marc_rulepacks.test
+# description: MARC 21 rulepack validation macros (Avram schemas embedded from schemas/)
+# group: [marc]
+
+require marc21
+
+statement ok
+SET VARIABLE utf8 = 'test/data/sample_utf8.mrc';
+
+# Record 1 (008/020/100/245/650s) passes the bibliographic rulepack clean.
+query I
+SELECT len(marc_validate_bib(leader, fields))
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+0
+
+# Records 2 and 3 only lack the mandatory 008.
+query III
+SELECT record_no, len(marc_validate_bib(leader, fields)), marc_validate_bib(leader, fields)[1]
+FROM read_marc(getvariable('utf8')) WHERE record_no > 1 ORDER BY record_no;
+----
+2	1	008: required field missing
+3	1	008: required field missing
+
+# Indicator outside the enumerated codes: 245 ind1 must be 0 or 1.
+query I
+SELECT marc_validate_bib('00000nam a2200000 a 4500', [
+    struct_pack(tag := '008', ind1 := ' ', ind2 := ' ',
+                value := '200101s2020    nyua          000 0 eng d',
+                subfields := NULL),
+    struct_pack(tag := '245', ind1 := '9', ind2 := '0',
+                value := NULL::VARCHAR,
+                subfields := [struct_pack(code := 'a', value := 'T')])])[1];
+----
+245 ind1: '9' not one of [0,1]
+
+# Required subfield: a 245 without $a.
+query I
+SELECT marc_validate_bib('00000nam a2200000 a 4500', [
+    struct_pack(tag := '008', ind1 := ' ', ind2 := ' ',
+                value := '200101s2020    nyua          000 0 eng d',
+                subfields := NULL),
+    struct_pack(tag := '245', ind1 := '1', ind2 := '0',
+                value := NULL::VARCHAR,
+                subfields := [struct_pack(code := 'b', value := 'subtitle only')])])[1];
+----
+245$a: required subfield missing
+
+# Unknown subfield code: $x is not in the rulepack's 020 subfield list.
+query I
+SELECT marc_validate_bib('00000nam a2200000 a 4500', [
+    struct_pack(tag := '008', ind1 := ' ', ind2 := ' ',
+                value := '200101s2020    nyua          000 0 eng d',
+                subfields := NULL),
+    struct_pack(tag := '245', ind1 := '1', ind2 := '0',
+                value := NULL::VARCHAR,
+                subfields := [struct_pack(code := 'a', value := 'T')]),
+    struct_pack(tag := '020', ind1 := ' ', ind2 := ' ',
+                value := NULL::VARCHAR,
+                subfields := [struct_pack(code := 'a', value := '9780000000001'),
+                              struct_pack(code := 'x', value := 'oops')])])[1];
+----
+020$x: not in schema
+
+# Authority rulepack: a repeated 1XX heading is flagged (008 also missing).
+query II
+SELECT len(v), v[2] FROM (SELECT marc_validate_auth('00000nz  a2200000 a 4500', [
+    struct_pack(tag := '150', ind1 := ' ', ind2 := ' ', value := NULL::VARCHAR,
+                subfields := [struct_pack(code := 'a', value := 'Topic')]),
+    struct_pack(tag := '150', ind1 := ' ', ind2 := ' ', value := NULL::VARCHAR,
+                subfields := [struct_pack(code := 'a', value := 'Other topic')])]) AS v);
+----
+2	150: non-repeatable field occurs 2 times
+
+# Holdings rulepack: missing 008 plus a repeated 852$8 ($8 is NR in 852).
+query III
+SELECT len(v), v[1], v[2] FROM (SELECT marc_validate_holdings('00000nx  a2200000 a 4500', [
+    struct_pack(tag := '852', ind1 := '0', ind2 := ' ', value := NULL::VARCHAR,
+                subfields := [struct_pack(code := '8', value := '1'),
+                              struct_pack(code := '8', value := '2'),
+                              struct_pack(code := 'b', value := 'MAIN')])]) AS v);
+----
+2	008: required field missing	852$8: non-repeatable subfield occurs 2 times
+
+# marc_validate_format dispatches on Leader/06: bibliographic fixtures...
+query II
+SELECT record_no, len(marc_validate_format(leader, fields))
+FROM read_marc(getvariable('utf8')) ORDER BY record_no;
+----
+1	0
+2	1
+3	1
+
+# ...an authority leader routes to the authority rulepack...
+query I
+SELECT marc_validate_format('00000nz  a2200000 a 4500', [
+    struct_pack(tag := '100', ind1 := '1', ind2 := ' ', value := NULL::VARCHAR,
+                subfields := [struct_pack(code := 'a', value := 'Name')])])[1];
+----
+008: required field missing
+
+# ...and a classification record falls back to the structural marc_validate.
+query I
+SELECT len(marc_validate_format('00000nw  a2200000 a 4500', [
+    struct_pack(tag := '153', ind1 := ' ', ind2 := ' ', value := NULL::VARCHAR,
+                subfields := [struct_pack(code := 'a', value := 'QA76')])]));
+----
+0

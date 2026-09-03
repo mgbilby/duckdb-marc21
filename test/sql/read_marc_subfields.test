@@ -1,0 +1,109 @@
+# name: test/sql/read_marc_subfields.test
+# description: Flat one-row-per-subfield primitive
+# group: [marc]
+
+require marc21
+
+statement ok
+SET VARIABLE utf8 = 'test/data/sample_utf8.mrc';
+
+# 3 records, 27 subfield rows (see tools/make_fixtures.py for the derivation)
+query II
+SELECT count(DISTINCT record_no), count(*) FROM read_marc_subfields(getvariable('utf8'));
+----
+3	27
+
+# Column schema
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_marc_subfields(getvariable('utf8')));
+----
+record_no	BIGINT
+file	VARCHAR
+control_number	VARCHAR
+leader	VARCHAR
+field_no	INTEGER
+tag	VARCHAR
+ind1	VARCHAR
+ind2	VARCHAR
+subfield_no	INTEGER
+code	VARCHAR
+value	VARCHAR
+
+# Control fields: one row, indicators and code NULL
+query IIIIII
+SELECT record_no, tag, ind1, ind2, code, value
+FROM read_marc_subfields(getvariable('utf8'))
+WHERE record_no = 1 AND tag < '010'
+ORDER BY field_no;
+----
+1	001	NULL	NULL	NULL	ocm00000001
+1	003	NULL	NULL	NULL	OCoLC
+1	008	NULL	NULL	NULL	200101s2020    nyua          000 0 eng d
+
+# Data field with indicators and ordered subfields
+query IIIII
+SELECT tag, ind1, ind2, code, value
+FROM read_marc_subfields(getvariable('utf8'))
+WHERE record_no = 1 AND tag = '245'
+ORDER BY subfield_no;
+----
+245	1	0	a	Łódź and the river :
+245	1	0	b	a study /
+245	1	0	c	Anna Müller.
+
+# Repeated fields keep distinct field_no; repeated subfields keep order
+query III
+SELECT field_no, code, value
+FROM read_marc_subfields(getvariable('utf8'))
+WHERE record_no = 1 AND tag = '650'
+ORDER BY field_no, subfield_no;
+----
+7	a	Rivers
+7	z	Poland
+7	z	Łódź.
+8	a	Cities and towns
+8	z	Poland.
+9	a	Rivers.
+9	2	fast
+9	0	(OCoLC)fst01098319
+
+# control_number is carried on every row of the record
+query I
+SELECT DISTINCT control_number FROM read_marc_subfields(getvariable('utf8')) ORDER BY 1;
+----
+ocm00000001
+ocm00000002
+ocm00000003
+
+# Non-Latin UTF-8 survives untouched
+query I
+SELECT value FROM read_marc_subfields(getvariable('utf8'))
+WHERE record_no = 2 AND tag = '245' AND code = 'a';
+----
+日本の歴史 /
+
+# tags filter restricts during the scan
+query II
+SELECT tag, count(*) FROM read_marc_subfields(getvariable('utf8'), tags := '245,650')
+GROUP BY tag ORDER BY tag;
+----
+245	6
+650	8
+
+# Leader is exposed verbatim (24 chars)
+query I
+SELECT DISTINCT length(leader) FROM read_marc_subfields(getvariable('utf8'));
+----
+24
+
+# Frequency-table idiom (what marc21-rs calls `describe`)
+query III
+SELECT tag, code, count(*) AS n
+FROM read_marc_subfields(getvariable('utf8'))
+WHERE tag = '650'
+GROUP BY ALL ORDER BY tag, code;
+----
+650	0	1
+650	2	1
+650	a	3
+650	z	3

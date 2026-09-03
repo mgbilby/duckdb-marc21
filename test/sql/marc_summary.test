@@ -1,0 +1,39 @@
+# name: test/sql/marc_summary.test
+# description: marc_summary statistical overview macros
+# group: [marc]
+
+require marc21
+
+statement ok
+SET VARIABLE utf8 = 'test/data/sample_utf8.mrc';
+
+query IIIIIIIII
+SELECT records, total_fields, total_subfields, min_fields, max_fields,
+       mean_fields, stddev_fields, mean_distinct_tags, marc8_records
+FROM marc_summary(getvariable('utf8'));
+----
+3	15	27	2	9	5.0	3.61	4.33	0
+
+query IIIIIIIII
+SELECT tag, total_occurrences, records_with, pct_records, min_per_record,
+       max_per_record, mean_per_record, stddev_per_record, mean_subfields_per_field
+FROM marc_summary_fields(getvariable('utf8')) WHERE tag IN ('245', '650')
+ORDER BY tag;
+----
+245	3	3	100.0	1	1	1.0	0.0	2.0
+650	3	1	33.3	3	3	3.0	NULL	2.67
+
+query IIIIIII
+SELECT code, occurrences, records_with, min_len, max_len, mean_len, stddev_len
+FROM marc_summary_subfields(getvariable('utf8'), '650') ORDER BY code;
+----
+0	1	1	18	18	18.0	NULL
+2	1	1	4	4	4.0	NULL
+a	3	1	6	16	9.7	5.5
+z	3	1	6	8	7.0	1.0
+
+# Works across a glob (all fixtures)
+query I
+SELECT records FROM marc_summary('test/data/sample_*.mrc');
+----
+5

@@ -1,0 +1,27 @@
+# name: test/sql/marc_envelopes.test
+# description: SRU / OAI-PMH envelope extraction through read_marcxml
+# group: [marc]
+
+require marc21
+
+# SRU: zs:record wrappers are transparent; both MARC records surface
+query II
+SELECT control_number, value FROM read_marcxml('test/data/sample_sru.xml')
+WHERE tag = '245' ORDER BY record_no;
+----
+sru-1	SRU record one
+sru-2	SRU record two
+
+# OAI-PMH: nested metadata records surface; a deleted-record stub yields
+# no rows at all
+query II
+SELECT control_number, value FROM read_marcxml('test/data/sample_oai.xml')
+WHERE tag = '245' ORDER BY record_no;
+----
+oai-1	OAI record one
+oai-3	OAI record three
+
+query I
+SELECT count(DISTINCT record_no) FROM read_marcxml('test/data/sample_oai.xml');
+----
+2

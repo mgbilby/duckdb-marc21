@@ -1,0 +1,78 @@
+# name: test/sql/marc_rda_check.test
+# description: marc_rda_check AACR2->RDA issue flags and the batch-fix pipeline
+# group: [marc]
+
+require marc21
+
+statement ok
+SET VARIABLE utf8 = 'test/data/sample_utf8.mrc';
+
+# Fixture records are AACR2-coded (Leader/18 = 'a') with no 040 $e or 33X
+query II
+SELECT record_no, marc_rda_check(leader, fields) FROM read_marc(getvariable('utf8')) ORDER BY record_no;
+----
+1	[desc_aacr2, no_040e_rda, missing_336, missing_337, missing_338]
+2	[desc_aacr2, no_040e_rda, missing_336, missing_337, missing_338]
+3	[desc_aacr2, no_040e_rda, missing_336, missing_337, missing_338]
+
+# A fully AACR2-flavored record trips every flag
+query I
+WITH rec AS (
+  SELECT (marc_new_record('book')).leader AS leader,
+         marc_add_field(marc_add_field(marc_add_field(marc_add_field(marc_add_field((marc_new_record('book')).fields,
+           {tag:'100', ind1:'1', ind2:' ', value:NULL, subfields:[{code:'a', value:'Smith, Jane.'}]}),
+           {tag:'245', ind1:'1', ind2:'0', value:NULL, subfields:[{code:'a', value:'A title'}, {code:'h', value:'[microform] /'}, {code:'c', value:'by Jane Smith ... [et al.]'}]}),
+           {tag:'260', ind1:' ', ind2:' ', value:NULL, subfields:[{code:'a', value:'[S.l.] :'}, {code:'b', value:'[s.n.],'}, {code:'c', value:'1985.'}]}),
+           {tag:'300', ind1:' ', ind2:' ', value:NULL, subfields:[{code:'a', value:'xii, 300 p. :'}, {code:'b', value:'ill. ;'}]}),
+           {tag:'700', ind1:'1', ind2:' ', value:NULL, subfields:[{code:'a', value:'Doe, John.'}]}) AS fields)
+SELECT unnest(marc_rda_check(substr(leader, 1, 18) || 'a' || substr(leader, 20), fields)) FROM rec;
+----
+desc_aacr2
+no_040e_rda
+missing_336
+missing_337
+missing_338
+gmd_245h
+only_260
+aacr2_abbreviations
+sl_sn_260
+et_al_245
+no_relator_1xx
+no_relator_7xx
+
+# The batch-fix pipeline (recipe 7) clears every mechanical flag; with an 040
+# present, marc_set_subfield appends the $e rda marker too
+query II
+WITH rec AS (
+  SELECT (marc_new_record('book')).leader AS lead0,
+         marc_add_field(marc_add_field(marc_add_field((marc_new_record('book')).fields,
+           {tag:'040', ind1:' ', ind2:' ', value:NULL, subfields:[{code:'a', value:'DLC'}]}),
+           {tag:'245', ind1:'1', ind2:'0', value:NULL, subfields:[{code:'a', value:'A title /'}, {code:'h', value:'[microform]'}]}),
+           {tag:'300', ind1:' ', ind2:' ', value:NULL, subfields:[{code:'a', value:'300 p.'}]}) AS f0),
+fixed AS (
+  SELECT substr(lead0, 1, 18) || 'i' || substr(lead0, 20) AS leader,
+         marc_set_subfield(
+           marc_rda_expand(marc_generate_33x(lead0, marc_remove_subfield(f0, '245', 'h'))),
+           '040', 'e', 'rda') AS fields
+  FROM rec)
+SELECT marc_rda_check(leader, fields), marc_subfield(fields, '300', 'a') FROM fixed;
+----
+[]	300 pages
+
+# Relator flags stay quiet when $e or $4 is present
+query I
+SELECT marc_rda_check('00000nam a2200000 i 4500',
+  [{tag:'100', ind1:'1', ind2:' ', value:NULL, subfields:[{code:'a', value:'Smith, Jane,'}, {code:'e', value:'author.'}]},
+   {tag:'700', ind1:'1', ind2:' ', value:NULL, subfields:[{code:'a', value:'Doe, John,'}, {code:'4', value:'edt'}]},
+   {tag:'040', ind1:' ', ind2:' ', value:NULL, subfields:[{code:'e', value:'rda'}]},
+   {tag:'336', ind1:' ', ind2:' ', value:NULL, subfields:[{code:'a', value:'text'}]},
+   {tag:'337', ind1:' ', ind2:' ', value:NULL, subfields:[{code:'a', value:'unmediated'}]},
+   {tag:'338', ind1:' ', ind2:' ', value:NULL, subfields:[{code:'a', value:'volume'}]}]);
+----
+[]
+
+# Non-bibliographic leaders yield an empty list (authority: Leader/06 = 'z')
+query I
+SELECT marc_rda_check('00000nz  a2200000n  4500', []);
+----
+[]

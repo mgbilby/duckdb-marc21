@@ -1,0 +1,72 @@
+# name: test/sql/copy_marc.test
+# description: COPY ... TO (FORMAT marc) writes valid ISO 2709
+# group: [marc]
+
+require marc21
+
+statement ok
+COPY (SELECT * FROM read_marc('test/data/sample_utf8.mrc'))
+TO '__TEST_DIR__/roundtrip.mrc' (FORMAT marc);
+
+# Lossless: every record's nested fields survive the round trip
+query I
+SELECT bool_and(a.fields = b.fields AND a.control_number = b.control_number)
+FROM read_marc('test/data/sample_utf8.mrc') a
+JOIN read_marc('__TEST_DIR__/roundtrip.mrc') b USING (record_no);
+----
+true
+
+# MARC-8 input is re-encoded as UTF-8 output (leader/09 = 'a'), values intact
+statement ok
+COPY (SELECT * FROM read_marc('test/data/sample_marc8.mrc'))
+TO '__TEST_DIR__/marc8_as_utf8.mrc' (FORMAT marc);
+
+query II
+SELECT marc_encoding_scheme(leader), marc_subfield(fields, '100', 'a')
+FROM read_marc('__TEST_DIR__/marc8_as_utf8.mrc');
+----
+utf8	Müller, Anna,
+
+# A fields column is required
+statement error
+COPY (SELECT 42 AS x) TO '__TEST_DIR__/bad.mrc' (FORMAT marc);
+----
+requires a "fields" column
+
+statement error
+COPY (SELECT * FROM read_marc('test/data/sample_utf8.mrc'))
+TO '__TEST_DIR__/bad2.mrc' (FORMAT marc, encoding 'ebcdic');
+----
+unsupported encoding
+
+# UTF-8 -> MARC-8 crosswalk: encode ANSEL-representable text as MARC-8...
+statement ok
+COPY (SELECT * FROM read_marc('test/data/sample_utf8.mrc') WHERE record_no = 1)
+TO '__TEST_DIR__/as_marc8.mrc' (FORMAT marc, ENCODING 'marc8');
+
+# ...and reading it back (leader/09 blank -> MARC-8 auto-detect) restores
+# the identical Unicode values
+query II
+SELECT marc_encoding_scheme(b.leader),
+       bool_and(a.fields = b.fields)
+FROM read_marc('test/data/sample_utf8.mrc') a
+JOIN read_marc('__TEST_DIR__/as_marc8.mrc') b USING (record_no)
+WHERE a.record_no = 1 GROUP BY 1;
+----
+marc8	true
+
+# Full crosswalk cycle marc8 -> utf8 -> marc8 -> utf8 stays fixed
+statement ok
+COPY (SELECT * FROM read_marc('test/data/sample_marc8.mrc'))
+TO '__TEST_DIR__/cycle1.mrc' (FORMAT marc, ENCODING 'utf8');
+
+statement ok
+COPY (SELECT * FROM read_marc('__TEST_DIR__/cycle1.mrc'))
+TO '__TEST_DIR__/cycle2.mrc' (FORMAT marc, ENCODING 'marc8');
+
+query I
+SELECT bool_and(a.fields = b.fields)
+FROM read_marc('test/data/sample_marc8.mrc') a
+JOIN read_marc('__TEST_DIR__/cycle2.mrc') b USING (record_no);
+----
+true

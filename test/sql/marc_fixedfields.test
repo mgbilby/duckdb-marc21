@@ -1,0 +1,81 @@
+# name: test/sql/marc_fixedfields.test
+# description: marc_leader_struct and marc_008_struct fixed-field explosion
+# group: [marc]
+
+require marc21
+
+statement ok
+SET VARIABLE utf8 = 'test/data/sample_utf8.mrc';
+
+# Leader positions of record 1 ("00397nam a2200133 a 4500").
+query IIIII
+SELECT struct_extract(marc_leader_struct(leader), 'record_length'),
+       struct_extract(marc_leader_struct(leader), 'status'),
+       struct_extract(marc_leader_struct(leader), 'type'),
+       struct_extract(marc_leader_struct(leader), 'bib_level'),
+       struct_extract(marc_leader_struct(leader), 'encoding')
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+397	n	a	m	utf8
+
+query IIII
+SELECT struct_extract(marc_leader_struct(leader), 'base_address'),
+       struct_extract(marc_leader_struct(leader), 'indicator_count'),
+       struct_extract(marc_leader_struct(leader), 'subfield_code_count'),
+       struct_extract(marc_leader_struct(leader), 'cataloging_form')
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+133	2	2	a
+
+# 008 all-materials positions ("200101s2020    nyua          000 0 eng d").
+query IIIIII
+SELECT struct_extract(s, 'date_entered'),
+       struct_extract(s, 'date_type'),
+       struct_extract(s, 'date1'),
+       struct_extract(s, 'place'),
+       struct_extract(s, 'language'),
+       struct_extract(s, 'cataloging_source')
+FROM (SELECT marc_008_struct(leader, fields) AS s
+      FROM read_marc(getvariable('utf8')) WHERE record_no = 1);
+----
+200101	s	2020	nyu	eng	d
+
+# Blank-filled positions survive verbatim.
+query III
+SELECT struct_extract(s, 'date2') = '    ',
+       struct_extract(s, 'modified') = ' ',
+       struct_extract(struct_extract(s, 'books'), 'audience') = ' '
+FROM (SELECT marc_008_struct(leader, fields) AS s
+      FROM read_marc(getvariable('utf8')) WHERE record_no = 1);
+----
+true	true	true
+
+# Books positions (Leader/06='a', /07='m' -> books material).
+query IIIII
+SELECT struct_extract(b, 'illustrations') = 'a   ',
+       struct_extract(b, 'conference'),
+       struct_extract(b, 'festschrift'),
+       struct_extract(b, 'index'),
+       struct_extract(b, 'literary_form')
+FROM (SELECT struct_extract(marc_008_struct(leader, fields), 'books') AS b
+      FROM read_marc(getvariable('utf8')) WHERE record_no = 1);
+----
+true	0	0	0	0
+
+# No 008 -> NULL struct.
+query I
+SELECT marc_008_struct(leader, fields) IS NULL
+FROM read_marc(getvariable('utf8')) WHERE record_no = 2;
+----
+true
+
+# A serial leader (Leader/07 = 's') gets no books sub-struct.
+query II
+SELECT struct_extract(s, 'language'),
+       struct_extract(s, 'books') IS NULL
+FROM (SELECT marc_008_struct('00000nas a2200000 a 4500', [
+          struct_pack(tag := '008', ind1 := ' ', ind2 := ' ',
+                      value := '200101s2020    nyua          000 0 eng d',
+                      subfields := NULL::STRUCT(code VARCHAR, "value" VARCHAR)[])]) AS s);
+----
+eng	true

@@ -1,0 +1,55 @@
+# name: test/sql/marc_serials.test
+# description: 853-855/863-865 caption-value pairing and human-readable expansion
+# group: [marc]
+
+require marc21
+
+# A holdings field set: an 853/863 pair and an 854/864 pair share link 1, and
+# one 863 (link 2) has no caption.
+statement ok
+CREATE TABLE serials AS SELECT [
+    struct_pack(tag := '853', ind1 := '2', ind2 := '0', value := NULL::VARCHAR,
+                subfields := [struct_pack(code := '8', value := '1'),
+                              struct_pack(code := 'a', value := 'v.'),
+                              struct_pack(code := 'b', value := 'no.'),
+                              struct_pack(code := 'c', value := '(year)'),
+                              struct_pack(code := 'd', value := '(month)')]),
+    struct_pack(tag := '854', ind1 := '2', ind2 := '0', value := NULL::VARCHAR,
+                subfields := [struct_pack(code := '8', value := '1'),
+                              struct_pack(code := 'a', value := 'suppl.')]),
+    struct_pack(tag := '863', ind1 := '4', ind2 := '0', value := NULL::VARCHAR,
+                subfields := [struct_pack(code := '8', value := '1.1'),
+                              struct_pack(code := 'a', value := '3'),
+                              struct_pack(code := 'b', value := '2'),
+                              struct_pack(code := 'c', value := '1998'),
+                              struct_pack(code := 'd', value := 'Mar.')]),
+    struct_pack(tag := '864', ind1 := '4', ind2 := '0', value := NULL::VARCHAR,
+                subfields := [struct_pack(code := '8', value := '1.1'),
+                              struct_pack(code := 'a', value := '2001')]),
+    struct_pack(tag := '863', ind1 := '4', ind2 := '0', value := NULL::VARCHAR,
+                subfields := [struct_pack(code := '8', value := '2.1'),
+                              struct_pack(code := 'a', value := '9')])
+] AS fields;
+
+# Pairing: 863->853 and 864->854 on the $8 link part before '.', in value
+# field order; the linkless 863 pairs with no caption.
+query IIIIII
+SELECT len(p),
+       p[1].link,
+       p[1].caption_field.tag,
+       p[1].value_field.tag,
+       p[2].caption_field.tag,
+       p[3].caption_field IS NULL
+FROM (SELECT marc_holdings_pairs(fields) AS p FROM serials);
+----
+3	1	853	863	854	true
+
+# Expansion: enumeration captions concatenate as caption||value joined on ':',
+# parenthesized (chronology) captions contribute values inside one "(...)".
+query III
+SELECT marc_expand_863(p[1].caption_field, p[1].value_field),
+       marc_expand_863(p[2].caption_field, p[2].value_field),
+       marc_expand_863(p[3].caption_field, p[3].value_field)
+FROM (SELECT marc_holdings_pairs(fields) AS p FROM serials);
+----
+v.3:no.2(1998:Mar.)	suppl.2001	9

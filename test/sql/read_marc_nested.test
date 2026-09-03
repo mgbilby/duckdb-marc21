@@ -1,0 +1,75 @@
+# name: test/sql/read_marc_nested.test
+# description: Nested reconstruction macros and navigation helpers
+# group: [marc]
+
+require marc21
+
+statement ok
+SET VARIABLE utf8 = 'test/data/sample_utf8.mrc';
+
+# One row per record
+query I
+SELECT count(*) FROM read_marc(getvariable('utf8'));
+----
+3
+
+# Field list preserves order and cardinality (record 1 has 9 fields)
+query II
+SELECT control_number, len(fields) FROM read_marc(getvariable('utf8')) ORDER BY record_no;
+----
+ocm00000001	9
+ocm00000002	4
+ocm00000003	2
+
+# Subfield navigation
+query II
+SELECT control_number, marc_subfield(fields, '245', 'a') AS title
+FROM read_marc(getvariable('utf8')) ORDER BY record_no;
+----
+ocm00000001	Łódź and the river :
+ocm00000002	日本の歴史 /
+ocm00000003	The empty record.
+
+# Repeated subjects: all $a across all 650s
+query I
+SELECT marc_subfields(fields, '650', 'a') FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+[Rivers, Cities and towns, Rivers.]
+
+# Repeated $z inside one field survives (the lossless requirement)
+query I
+SELECT list_transform(marc_fields(fields, '650')[1].subfields, lambda s: s.value)
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+[Rivers, Poland, Łódź.]
+
+# Control-field access and leader helpers
+query IIII
+SELECT marc_control_field(fields, '001'),
+       marc_control_pos(marc_control_field(fields, '008'), 35, 3) AS lang,
+       marc_record_type(leader),
+       marc_bib_level(leader)
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+ocm00000001	eng	a	m
+
+# Missing tag -> NULL, not an error
+query I
+SELECT marc_subfield(fields, '999', 'a') IS NULL FROM read_marc(getvariable('utf8')) WHERE record_no = 3;
+----
+true
+
+# marc_readfields: control field row has NULL subfields and a value
+query IIII
+SELECT tag, control_value, subfields IS NULL, ind1
+FROM marc_readfields(getvariable('utf8')) WHERE record_no = 3 ORDER BY field_no;
+----
+001	ocm00000003	true	NULL
+245	NULL	false	1
+
+# Breaker-style rendering round-trips the data field shape
+query I
+SELECT marc_fieldbreak(marc_fields(fields, '245')[1])
+FROM read_marc(getvariable('utf8')) WHERE record_no = 3;
+----
+=245  14$aThe empty record.

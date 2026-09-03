@@ -1,0 +1,30 @@
+# name: test/sql/marc8_multiscript.test
+# description: Full MARC-8 tables — G0 designations for Cyrillic, Greek,
+#              Hebrew and EACC, plus the ANSEL split ligature
+# group: [marc]
+
+require marc21
+
+statement ok
+SET VARIABLE ms = 'test/data/sample_multiscript.mrc';
+
+query I
+SELECT marc_encoding_scheme(any_value(leader)) FROM read_marc_subfields(getvariable('ms'));
+----
+marc8
+
+# ANSEL split ligature becomes one spanning U+0361 (i͡a)
+query I
+SELECT value FROM read_marc_subfields(getvariable('ms')) WHERE tag = '245' AND code = 'a';
+----
+Vremi͡a nochʹ /
+
+# Cyrillic, Greek, Hebrew and EACC via escape designations
+query I
+SELECT value FROM read_marc_subfields(getvariable('ms'), tags := '880') WHERE code = 'a'
+ORDER BY field_no;
+----
+Время
+αβγ
+אב
+日本

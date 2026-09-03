@@ -1,0 +1,55 @@
+# name: test/sql/marc_catalog.test
+# description: record ranking, templates, RDA 33X, call-number keys
+# group: [marc]
+
+require marc21
+
+statement ok
+SET VARIABLE utf8 = 'test/data/sample_utf8.mrc';
+
+# Fuller record outranks sparser one; components populated
+query II
+SELECT a.t > b.t, a.t BETWEEN 1 AND 100 FROM
+  (SELECT (marc_rank(leader, fields)).total t FROM read_marc(getvariable('utf8')) WHERE record_no = 1) a,
+  (SELECT (marc_rank(leader, fields)).total t FROM read_marc(getvariable('utf8')) WHERE record_no = 3) b;
+----
+true	true
+
+# Templates: leader type/bib level per material, round-trip-safe fields
+query III
+SELECT (marc_new_record('serial')).leader[7:8],
+       (marc_new_record('video')).leader[7:8],
+       len((marc_new_record('book')).fields);
+----
+as	gm	2
+
+statement error
+SELECT marc_new_record('scroll');
+----
+marc_new_record
+
+# 33X generation for a book: text / unmediated / volume
+query III
+SELECT marc_subfield(f, '336', 'b'), marc_subfield(f, '337', 'b'), marc_subfield(f, '338', 'b')
+FROM (SELECT marc_generate_33x(leader, fields) f FROM read_marc(getvariable('utf8')) WHERE record_no = 1);
+----
+txt	n	nc
+
+# Call numbers: shelf order, parse, cutter validation
+query IIII
+SELECT marc_lcc_sortkey('QA76.73.S67') < marc_lcc_sortkey('QA76.9.A25'),
+       marc_lcc_sortkey('PZ7.A1') < marc_lcc_sortkey('PZ76.A1'),
+       (marc_lcc_parse('QA76.73.S67 1998')).valid,
+       marc_cutter_valid('.C45');
+----
+true	true	true	true
+
+query I
+SELECT marc_lcc_sortkey('not a call number') IS NULL;
+----
+true
+
+query I
+SELECT marc_ddc_sortkey('813.54') < marc_ddc_sortkey('813.6');
+----
+true

@@ -1,0 +1,37 @@
+# name: test/sql/marc_avram.test
+# description: Avram schema validation
+# group: [marc]
+
+require marc21
+
+statement ok
+SET VARIABLE schema = '{
+  "fields": {
+    "001": {"required": true},
+    "245": {"required": true, "indicator1": {"codes": {"0": {}, "1": {}}},
+             "subfields": {"a": {"required": true}, "b": {}, "c": {}}},
+    "650": {"repeatable": true}
+  }
+}';
+
+# All fixture records pass this schema
+query I
+SELECT sum(len(marc_validate_avram(leader, fields, getvariable('schema'))))
+FROM read_marc('test/data/sample_utf8.mrc');
+----
+0
+
+# A stricter schema flags the multi-650 record
+query I
+SELECT marc_validate_avram(leader, fields,
+    '{"fields": {"650": {"repeatable": false}}}')[1]
+FROM read_marc('test/data/sample_utf8.mrc') WHERE record_no = 1;
+----
+650: non-repeatable field occurs 3 times
+
+# Malformed schema JSON is a binder error
+statement error
+SELECT marc_validate_avram(leader, fields, '{nope')
+FROM read_marc('test/data/sample_utf8.mrc');
+----
+malformed JSON

@@ -1,0 +1,40 @@
+# name: test/sql/marc_z3950.test
+# description: read_z3950 registration, argument validation, fast failure paths
+# group: [marc]
+
+require marc21
+
+# No live Z39.50 server is reachable from CI; the protocol itself is covered
+# by the standalone core suites (test/cpp/z3950_test.cpp scripted transport,
+# test/cpp/z3950_socket_test.cpp real loopback sockets).  Here: registration,
+# shape, and error paths that fail without a network.
+
+# Registered with the documented signature
+query I
+SELECT count(*) FROM duckdb_functions()
+WHERE function_name = 'read_z3950' AND function_type = 'table';
+----
+1
+
+# Column shape is visible at bind time (no connection made by DESCRIBE)
+query II
+SELECT column_name, column_type FROM (
+  DESCRIBE SELECT record_no, hits, control_number, leader
+  FROM read_z3950('192.0.2.1', 210, 'db', 'q')
+);
+----
+record_no	BIGINT
+hits	BIGINT
+control_number	VARCHAR
+leader	VARCHAR
+
+statement error
+SELECT * FROM read_z3950('', 210, 'VOYAGER', 'dinosaurs');
+----
+host must not be empty
+
+# Connection refused on loopback fails immediately with the endpoint named
+statement error
+SELECT * FROM read_z3950('127.0.0.1', 1, 'VOYAGER', 'dinosaurs', timeout := 3);
+----
+z3950

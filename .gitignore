@@ -1,0 +1,4 @@
+/build
+*.duckdb_extension
+__pycache__/
+/target

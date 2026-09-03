@@ -1,0 +1,20 @@
+=LDR  00000nam a2200000 a 4500
+=001  ocm00000001
+=003  OCoLC
+=008  200101s2020    nyua          000 0 eng d
+=020  \\$a9780000000001
+=100  1\$aMüller, Anna,$d1970-$eauthor.
+=245  10$aŁódź and the river :$ba study /$cAnna Müller.
+=650  \0$aRivers$zPoland$zŁódź.
+=650  \0$aCities and towns$zPoland.
+=650  \7$aRivers.$2fast$0(OCoLC)fst01098319
+
+=LDR  00000nam a2200000 a 4500
+=001  ocm00000002
+=245  00$a日本の歴史 /$c山田太郎.
+=880  00$6245-01$aNihon no rekishi /
+=856  40$uhttps://example.org/x$zFull text
+
+=LDR  00000nam a2200000 a 4500
+=001  ocm00000003
+=245  14$aThe empty record.
