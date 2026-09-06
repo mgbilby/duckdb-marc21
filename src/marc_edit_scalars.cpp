@@ -7,6 +7,10 @@
 //!   marc_set_subfield(fields, tagpat, code, value),
 //!   marc_replace_values(fields, tagpat, code_or_null, regex, replacement),
 //!   marc_set_indicators(fields, tagpat, ind1_or_null, ind2_or_null),
+//!   marc_swap_fields(fields, tag_a, tag_b),
+//!   marc_sort_fields(fields),
+//!   marc_rename_subfield(fields, tagpat, from_code, to_code),
+//!   marc_replace_all(fields, rules),  -- rules: LIST(STRUCT(tag, code, find, replace))
 //!   marc_merge(base, incoming, protected_csv, replace_csv, add_csv, action)
 //! Analysis:
 //!   marc_diff(leader_a, fields_a, leader_b, fields_b) -> LIST(STRUCT)
@@ -129,6 +133,62 @@ static void SetIndicatorsExec(DataChunk &args, ExpressionState &, Vector &result
 		marc::FieldSelector sel;
 		sel.tag = StrArg(a, 1, i);
 		return marc::SetIndicators(rec, sel, OptArg(a, 2, i), OptArg(a, 3, i));
+	});
+}
+
+static void SwapFieldsExec(DataChunk &args, ExpressionState &, Vector &result) {
+	FieldsOp(args, result, [](marc::Record &rec, DataChunk &a, idx_t i) {
+		return marc::SwapFields(rec, StrArg(a, 1, i), StrArg(a, 2, i));
+	});
+}
+
+static void SortFieldsExec(DataChunk &args, ExpressionState &, Vector &result) {
+	FieldsOp(args, result, [](marc::Record &rec, DataChunk &, idx_t) { return marc::SortFields(rec); });
+}
+
+static void RenameSubfieldExec(DataChunk &args, ExpressionState &, Vector &result) {
+	FieldsOp(args, result, [](marc::Record &rec, DataChunk &a, idx_t i) {
+		return marc::RenameSubfield(rec, StrArg(a, 1, i), StrArg(a, 2, i), StrArg(a, 3, i));
+	});
+}
+
+//! Argument type of marc_replace_all's rules list: one struct per rule, in
+//! application order.  A NULL code means every subfield code.
+static const LogicalType &ReplaceRuleType() {
+	const LogicalType varchar(LogicalTypeId::VARCHAR);
+	static const LogicalType type =
+	    LogicalType::STRUCT({{"tag", varchar}, {"code", varchar}, {"find", varchar}, {"replace", varchar}});
+	return type;
+}
+
+static void ReplaceAllExec(DataChunk &args, ExpressionState &, Vector &result) {
+	FieldsOp(args, result, [](marc::Record &rec, DataChunk &a, idx_t i) {
+		auto rules_value = a.data[1].GetValue(i);
+		if (rules_value.IsNull()) {
+			return rec;
+		}
+		std::vector<marc::ReplaceRule> rules;
+		for (auto &rv : ListValue::GetChildren(rules_value)) {
+			if (rv.IsNull()) {
+				continue;
+			}
+			auto &parts = StructValue::GetChildren(rv); // tag, code, find, replace
+			marc::ReplaceRule rule;
+			if (!parts[0].IsNull()) {
+				rule.tag = parts[0].ToString();
+			}
+			if (!parts[1].IsNull()) {
+				rule.code = parts[1].ToString();
+			}
+			if (!parts[2].IsNull()) {
+				rule.pattern = parts[2].ToString();
+			}
+			if (!parts[3].IsNull()) {
+				rule.replacement = parts[3].ToString();
+			}
+			rules.push_back(std::move(rule));
+		}
+		return marc::ApplyReplaceRules(rec, rules);
 	});
 }
 
@@ -415,6 +475,12 @@ void RegisterMarcEditScalars(ExtensionLoader &loader) {
 	    ScalarFunction("marc_replace_values", {fields_type, V, V, V, V}, fields_type, ReplaceValuesExec));
 	loader.RegisterFunction(
 	    ScalarFunction("marc_set_indicators", {fields_type, V, V, V}, fields_type, SetIndicatorsExec));
+	loader.RegisterFunction(ScalarFunction("marc_swap_fields", {fields_type, V, V}, fields_type, SwapFieldsExec));
+	loader.RegisterFunction(ScalarFunction("marc_sort_fields", {fields_type}, fields_type, SortFieldsExec));
+	loader.RegisterFunction(
+	    ScalarFunction("marc_rename_subfield", {fields_type, V, V, V}, fields_type, RenameSubfieldExec));
+	loader.RegisterFunction(ScalarFunction("marc_replace_all", {fields_type, LogicalType::LIST(ReplaceRuleType())},
+	                                       fields_type, ReplaceAllExec));
 	loader.RegisterFunction(
 	    ScalarFunction("marc_merge", {fields_type, fields_type, V, V, V, V}, fields_type, MergeExec));
 	loader.RegisterFunction(ScalarFunction("marc_diff", {V, fields_type, V, fields_type},

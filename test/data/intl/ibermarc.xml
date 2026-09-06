@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Hand-built IBERMARC record in the MARC 21 slim XML container - the
+     shape COPY (FORMAT marcxml) produces for a legacy IBERMARC file read
+     with read_marc(..., encoding := 'utf8') after its character encoding
+     has been converted.  IBERMARC is MARC-family, so most of this record
+     is already MARC 21; what the migration acts on is the 017 control
+     number, the 59X local block the BNE kept, and the leader's
+     character-coding position.  Spanish diacritics. -->
+<record xmlns="http://www.loc.gov/MARC21/slim">
+  <leader>01234nam  2200289   4500</leader>
+  <controlfield tag="001">bimo0000123456</controlfield>
+  <controlfield tag="005">19980612120000.0</controlfield>
+  <controlfield tag="008">980612s1997    sp |||||||||||||||spa d</controlfield>
+  <datafield tag="017" ind1=" " ind2=" ">
+    <subfield code="a">M 12345-1997</subfield>
+    <subfield code="b">Biblioteca Nacional de España</subfield>
+  </datafield>
+  <datafield tag="020" ind1=" " ind2=" ">
+    <subfield code="a">84-376-1234-5</subfield>
+  </datafield>
+  <datafield tag="080" ind1=" " ind2=" ">
+    <subfield code="a">598.2(460)</subfield>
+  </datafield>
+  <datafield tag="100" ind1="1" ind2=" ">
+    <subfield code="a">Muñoz Peña, José</subfield>
+    <subfield code="d">1945-</subfield>
+  </datafield>
+  <datafield tag="245" ind1="1" ind2="3">
+    <subfield code="a">Las aves del Guadalquivir /</subfield>
+    <subfield code="c">José Muñoz Peña.</subfield>
+  </datafield>
+  <datafield tag="260" ind1=" " ind2=" ">
+    <subfield code="a">Madrid :</subfield>
+    <subfield code="b">Ediciones del Río,</subfield>
+    <subfield code="c">1997.</subfield>
+  </datafield>
+  <datafield tag="300" ind1=" " ind2=" ">
+    <subfield code="a">198 p. :</subfield>
+    <subfield code="b">il. ;</subfield>
+    <subfield code="c">21 cm.</subfield>
+  </datafield>
+  <datafield tag="650" ind1=" " ind2="4">
+    <subfield code="a">Aves</subfield>
+    <subfield code="z">España</subfield>
+  </datafield>
+  <datafield tag="592" ind1=" " ind2=" ">
+    <subfield code="a">Ejemplar de depósito legal</subfield>
+  </datafield>
+</record>

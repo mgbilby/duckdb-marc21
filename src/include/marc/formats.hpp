@@ -39,6 +39,19 @@ std::string WriteMarcXmlCollection(const std::vector<Record> &records);
 // inverse of ParseBreaker (`\` for blank indicators, `$` as {dollar}).
 std::string WriteBreaker(const Record &rec);
 
+// ---- microlif.cpp ----------------------------------------------------------
+// MicroLIF (vendor "Library Interchange Format") reader.  One field per line:
+//   <3-char tag><ind1><ind2>_a...subfields marked with underscore+code
+// Control fields (tag < "010") carry no indicators; a backtick terminates a
+// record (trailing on the last field line or on a line of its own); an `LDR`
+// line opens a record with an explicit leader ("header" variant) while bare
+// field runs synthesise a default leader ("no-header" variant); a vendor
+// banner first line (`HDR`/`HEADR`) is skipped.  Tolerant of CRLF, `\` blank
+// indicators, marker-less leading text (implied $a) and literal `_` not
+// followed by [a-z0-9].  Values NFC-normalised.  Throws MarcError with a line
+// number on non-field lines.
+std::vector<Record> ParseMicroLif(std::string_view text);
+
 // ---- aleph.cpp -------------------------------------------------------------
 // Ex Libris Aleph sequential reader.  One field per line:
 //   <9-digit id> <tag+inds, 5 chars> L <content>

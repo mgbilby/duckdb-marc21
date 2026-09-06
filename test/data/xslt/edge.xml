@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Edge-case fixtures for the text-output crosswalks: JSON/RIS escaping
+     (quotes, backslash, embedded newline), an empty subfield, diacritics,
+     an 880 pair, an ISBN-10 to normalize, and $0 authority URIs. -->
+<collection xmlns="http://www.loc.gov/MARC21/slim">
+  <record>
+    <leader>00000nam a2200000 a 4500</leader>
+    <controlfield tag="001">xslt-fx-edge1</controlfield>
+    <controlfield tag="008">220101s2022    gw            000 0 ger d</controlfield>
+    <datafield tag="020" ind1=" " ind2=" ">
+      <subfield code="a">0-19-852663-6</subfield>
+    </datafield>
+    <datafield tag="100" ind1="1" ind2=" ">
+      <subfield code="6">880-01</subfield>
+      <subfield code="a">Grünbaum, Jürgen,</subfield>
+      <subfield code="d">1930-2001.</subfield>
+      <subfield code="0">http://id.loc.gov/authorities/names/n00000000</subfield>
+    </datafield>
+    <datafield tag="245" ind1="1" ind2="4">
+      <subfield code="a">Der "spezielle" Pfad C:\home zurück :</subfield>
+      <subfield code="b"></subfield>
+      <subfield code="c">Jürgen Grünbaum.</subfield>
+    </datafield>
+    <datafield tag="264" ind1=" " ind2="1">
+      <subfield code="a">Köln :</subfield>
+      <subfield code="b">Beispiel-Verlag "Süd",</subfield>
+      <subfield code="c">2022.</subfield>
+    </datafield>
+    <datafield tag="300" ind1=" " ind2=" ">
+      <subfield code="a">210 pages ;</subfield>
+      <subfield code="c">23 cm</subfield>
+    </datafield>
+    <datafield tag="520" ind1=" " ind2=" ">
+      <subfield code="a">First line of the summary.
+Second line after a raw newline.</subfield>
+    </datafield>
+    <datafield tag="650" ind1=" " ind2="0">
+      <subfield code="a">File systems (Computer science)</subfield>
+      <subfield code="x">History</subfield>
+      <subfield code="y">20th century</subfield>
+      <subfield code="z">Germany</subfield>
+    </datafield>
+    <datafield tag="700" ind1="1" ind2=" ">
+      <subfield code="a">O'Really, "Tim",</subfield>
+    </datafield>
+    <datafield tag="856" ind1="4" ind2="0">
+      <subfield code="u">https://example.org/path?a=1&amp;b=2</subfield>
+    </datafield>
+    <datafield tag="880" ind1="1" ind2=" ">
+      <subfield code="6">100-01</subfield>
+      <subfield code="a">גרינבאום, יורגן</subfield>
+    </datafield>
+  </record>
+</collection>

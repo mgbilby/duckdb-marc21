@@ -340,6 +340,297 @@ static void TestRenderAndDiff() {
 	CHECK_EQ(diff[0].rendered_b, std::string("=LDR  00000cam a2200000 a 4500"));
 }
 
+static void TestMoveField() {
+	Record r = Sample();
+	Record out = MoveField(r, "650", "690");
+	CHECK_EQ(out.fields.size(), size_t(7));
+	CHECK_EQ(out.fields[3].tag, std::string("690")); // renumbered in place
+	CHECK_EQ(out.fields[4].tag, std::string("690"));
+	CHECK_EQ(out.fields[3].subfields[0].value, std::string("Cooking."));
+	CHECK_EQ(out.fields[3].ind2, std::string("0")); // indicators kept
+	CHECK_EQ(out.fields[5].tag, std::string("651")); // order kept, not re-sorted
+	CHECK_EQ(r.fields[3].tag, std::string("650"));   // input untouched
+
+	// Wildcard source: every 6XX renumbers.
+	out = MoveField(r, "6..", "690");
+	CHECK_EQ(out.fields[3].tag, std::string("690"));
+	CHECK_EQ(out.fields[4].tag, std::string("690"));
+	CHECK_EQ(out.fields[5].tag, std::string("690"));
+
+	// Control-to-control moves work; no match is a no-op.
+	out = MoveField(r, "001", "003");
+	CHECK(out.fields[0].is_control);
+	CHECK_EQ(out.fields[0].tag, std::string("003"));
+	CHECK_EQ(out.fields[0].control_value, std::string("abc123"));
+	out = MoveField(r, "999", "998");
+	CHECK_EQ(DiffRecords(r, out).size(), size_t(0));
+
+	CHECK(ThrowsMarc([&] { MoveField(r, "245", "007"); })); // data → control
+	CHECK(ThrowsMarc([&] { MoveField(r, "001", "901"); })); // control → data
+	CHECK(ThrowsMarc([&] { MoveField(r, "65", "690"); }));
+	CHECK(ThrowsMarc([&] { MoveField(r, "650", "6.0"); })); // wildcard target
+	CHECK(ThrowsMarc([&] { MoveField(r, "650", "69"); }));
+}
+
+static void TestCopyField() {
+	Record r = Sample();
+	Record out = CopyField(r, "245", "246");
+	CHECK_EQ(out.fields.size(), size_t(8));
+	CHECK_EQ(out.fields[2].tag, std::string("245")); // original stays
+	CHECK_EQ(out.fields[3].tag, std::string("246")); // copy in tag order
+	CHECK_EQ(out.fields[3].subfields[1].value, std::string("a primer."));
+	CHECK_EQ(out.fields[3].ind1, std::string("1"));
+	CHECK_EQ(r.fields.size(), size_t(7)); // input untouched
+
+	// Two 650s copy as two 690s, source order preserved, after the 651.
+	out = CopyField(r, "650", "690");
+	CHECK_EQ(out.fields.size(), size_t(9));
+	CHECK_EQ(out.fields[6].tag, std::string("690"));
+	CHECK_EQ(out.fields[6].subfields[0].value, std::string("Cooking."));
+	CHECK_EQ(out.fields[7].subfields[0].value, std::string("Cookery."));
+	CHECK_EQ(out.fields[8].tag, std::string("700"));
+
+	// Control copies allowed within the boundary; no match is a no-op.
+	out = CopyField(r, "001", "003");
+	CHECK_EQ(out.fields[1].tag, std::string("003"));
+	CHECK_EQ(out.fields[1].control_value, std::string("abc123"));
+	out = CopyField(r, "999", "998");
+	CHECK_EQ(out.fields.size(), size_t(7));
+
+	CHECK(ThrowsMarc([&] { CopyField(r, "245", "008"); }));
+	CHECK(ThrowsMarc([&] { CopyField(r, "008", "500"); }));
+	CHECK(ThrowsMarc([&] { CopyField(r, "245", "2.6"); }));
+}
+
+static void TestSwapFields() {
+	Record r = Sample();
+
+	// Every 650 becomes 651 and vice versa, order and indicators preserved.
+	Record out = SwapFields(r, "650", "651");
+	CHECK_EQ(out.fields.size(), size_t(7));
+	CHECK_EQ(out.fields[3].tag, std::string("651"));
+	CHECK_EQ(out.fields[3].ind2, std::string("0")); // indicators kept
+	CHECK_EQ(out.fields[3].subfields[0].value, std::string("Cooking."));
+	CHECK_EQ(out.fields[4].tag, std::string("651"));
+	CHECK_EQ(out.fields[5].tag, std::string("650")); // the old 651, in place
+	CHECK_EQ(out.fields[5].subfields[0].value, std::string("France."));
+	CHECK_EQ(r.fields[3].tag, std::string("650")); // input untouched
+
+	// Swapping back restores the record exactly.
+	CHECK_EQ(DiffRecords(r, SwapFields(out, "650", "651")).size(), size_t(0));
+
+	// One side absent = plain retag of the other; both absent = no-op;
+	// swapping a tag with itself = no-op.
+	out = SwapFields(r, "245", "246");
+	CHECK_EQ(out.fields[2].tag, std::string("246"));
+	CHECK_EQ(DiffRecords(r, SwapFields(r, "946", "947")).size(), size_t(0));
+	CHECK_EQ(DiffRecords(r, SwapFields(r, "650", "650")).size(), size_t(0));
+
+	// Control-control swaps work (001 ↔ 008, values travel with the tags).
+	out = SwapFields(r, "001", "008");
+	CHECK(out.fields[0].is_control);
+	CHECK_EQ(out.fields[0].tag, std::string("008"));
+	CHECK_EQ(out.fields[0].control_value, std::string("abc123"));
+	CHECK_EQ(out.fields[1].tag, std::string("001"));
+
+	// Control/data boundary and tag validation errors.
+	CHECK(ThrowsMarc([&] { SwapFields(r, "001", "650"); })); // boundary
+	CHECK(ThrowsMarc([&] { SwapFields(r, "245", "008"); })); // boundary
+	CHECK(ThrowsMarc([&] { SwapFields(r, "6..", "651"); })); // wildcard
+	CHECK(ThrowsMarc([&] { SwapFields(r, "650", "65"); }));  // short tag
+}
+
+static void TestSortFields() {
+	Record r = Rec({
+	    CF("008", "970101s1997"),
+	    DF("650", " ", "0", {{"a", "First 650."}}),
+	    DF("245", "1", "0", {{"a", "A title."}}),
+	    CF("001", "abc123"),
+	    DF("650", " ", "7", {{"a", "Second 650."}}),
+	    DF("100", "1", " ", {{"a", "Smith, Jane."}}),
+	});
+	Record out = SortFields(r);
+	CHECK_EQ(out.fields.size(), size_t(6));
+	CHECK_EQ(out.fields[0].tag, std::string("001"));
+	CHECK_EQ(out.fields[1].tag, std::string("008"));
+	CHECK_EQ(out.fields[2].tag, std::string("100"));
+	CHECK_EQ(out.fields[3].tag, std::string("245"));
+	// Stable: the two 650s keep their occurrence order and indicators.
+	CHECK_EQ(out.fields[4].subfields[0].value, std::string("First 650."));
+	CHECK_EQ(out.fields[4].ind2, std::string("0"));
+	CHECK_EQ(out.fields[5].subfields[0].value, std::string("Second 650."));
+	CHECK_EQ(r.fields[0].tag, std::string("008")); // input untouched
+
+	// Already-sorted input round-trips unchanged.
+	CHECK_EQ(DiffRecords(SortFields(out), out).size(), size_t(0));
+}
+
+static void TestRenameSubfield() {
+	Record r = Sample();
+	Record out = RenameSubfield(r, "650", "x", "z");
+	CHECK_EQ(out.fields[3].subfields[1].code, std::string("z"));
+	CHECK_EQ(out.fields[3].subfields[1].value, std::string("History."));
+	CHECK_EQ(out.fields[3].subfields.size(), size_t(2)); // order/count kept
+	CHECK_EQ(r.fields[3].subfields[1].code, std::string("x")); // input untouched
+
+	// Wildcard tag pattern; codes absent from a matching field are a no-op.
+	out = RenameSubfield(r, "6..", "2", "5");
+	CHECK_EQ(out.fields[4].subfields[1].code, std::string("5"));
+	CHECK_EQ(out.fields[5].subfields[0].code, std::string("a")); // 651 untouched
+
+	// Control fields never match, even under "...".
+	out = RenameSubfield(r, "...", "a", "b");
+	CHECK_EQ(out.fields[0].control_value, std::string("abc123"));
+	CHECK_EQ(out.fields[2].subfields[0].code, std::string("b"));
+
+	CHECK(ThrowsMarc([&] { RenameSubfield(r, "65", "x", "z"); }));
+	CHECK(ThrowsMarc([&] { RenameSubfield(r, "650", "xy", "z"); }));
+	CHECK(ThrowsMarc([&] { RenameSubfield(r, "650", "x", ""); }));
+}
+
+static void TestApplyReplaceRules() {
+	Record r = Sample();
+
+	// Rules apply in order; the second rule sees the first one's output.
+	std::vector<ReplaceRule> rules;
+	rules.push_back({"650", std::string("a"), "^Cookery", "Cooking"});
+	rules.push_back({"650", std::string("a"), "Cooking", "Baking"});
+	Record out = ApplyReplaceRules(r, rules);
+	CHECK_EQ(out.fields[3].subfields[0].value, std::string("Baking."));
+	CHECK_EQ(out.fields[4].subfields[0].value, std::string("Baking."));
+	CHECK_EQ(r.fields[3].subfields[0].value, std::string("Cooking.")); // input untouched
+
+	// A NULL code hits every subfield; control values are in scope too.
+	rules.clear();
+	rules.push_back({"650", std::nullopt, "\\.$", "!"});
+	rules.push_back({"008", std::nullopt, "eng", "fre"});
+	out = ApplyReplaceRules(r, rules);
+	CHECK_EQ(out.fields[3].subfields[1].value, std::string("History!"));
+	CHECK(out.fields[1].control_value.find("fre") != std::string::npos);
+
+	// Empty rule list is the identity.
+	CHECK_EQ(DiffRecords(r, ApplyReplaceRules(r, {})).size(), size_t(0));
+
+	// Errors name the offending rule.
+	rules.clear();
+	rules.push_back({"650", std::nullopt, "fine", "ok"});
+	rules.push_back({"650", std::nullopt, "(unclosed", "x"});
+	try {
+		ApplyReplaceRules(r, rules);
+		CHECK(false);
+	} catch (const MarcError &e) {
+		CHECK(std::string(e.what()).find("rule 2") != std::string::npos);
+	}
+	rules.clear();
+	rules.push_back({"65", std::nullopt, "x", "y"});
+	CHECK(ThrowsMarc([&] { ApplyReplaceRules(r, rules); }));
+}
+
+static void TestChangeCase() {
+	Record r = Rec({
+	    CF("008", "970101s1997"),
+	    DF("245", "1", "0", {{"a", "the CAFÉ at ÎLE d'or :"}, {"b", "eine STRAßE."}}),
+	    DF("650", " ", "0", {{"a", "straße Ÿz"}, {"x", "HISTORY"}}),
+	});
+
+	Record out = ChangeCase(r, "245", "a", CaseMode::UPPER);
+	CHECK_EQ(out.fields[1].subfields[0].value, std::string("THE CAFÉ AT ÎLE D'OR :"));
+	CHECK_EQ(out.fields[1].subfields[1].value, std::string("eine STRAßE.")); // other code untouched
+	CHECK_EQ(r.fields[1].subfields[0].value, std::string("the CAFÉ at ÎLE d'or :")); // input untouched
+
+	// "*" hits every subfield; ß upper-cases to SS.
+	out = ChangeCase(r, "245", "*", CaseMode::UPPER);
+	CHECK_EQ(out.fields[1].subfields[1].value, std::string("EINE STRASSE."));
+
+	out = ChangeCase(r, "650", "a", CaseMode::LOWER);
+	CHECK_EQ(out.fields[2].subfields[0].value, std::string("straße ÿz")); // Ÿ → ÿ
+	out = ChangeCase(r, "650", "", CaseMode::LOWER);                      // "" = all
+	CHECK_EQ(out.fields[2].subfields[1].value, std::string("history"));
+
+	// Title case: word starts after separators; Latin-1 letters case; the
+	// apostrophe separates ("d'or" → "D'Or").
+	out = ChangeCase(r, "245", "a", CaseMode::TITLE);
+	CHECK_EQ(out.fields[1].subfields[0].value, std::string("The Café At Île D'Or :"));
+	out = ChangeCase(r, "245", "b", CaseMode::TITLE);
+	CHECK_EQ(out.fields[1].subfields[1].value, std::string("Eine Straße."));
+
+	// Digits hold word starts ("3rd" not "3Rd"); unknown scripts pass through
+	// but still count as word-internal.
+	Record digits = Rec({DF("500", " ", " ", {{"a", "3rd ed. 日本 abc"}})});
+	out = ChangeCase(digits, "500", "a", CaseMode::TITLE);
+	CHECK_EQ(out.fields[0].subfields[0].value, std::string("3rd Ed. 日本 Abc"));
+
+	// Control fields are never touched, even by a matching pattern.
+	out = ChangeCase(r, "...", "*", CaseMode::UPPER);
+	CHECK_EQ(out.fields[0].control_value, std::string("970101s1997"));
+
+	CHECK(ThrowsMarc([&] { ChangeCase(r, "24", "a", CaseMode::UPPER); }));
+	CHECK(ThrowsMarc([&] { ChangeCase(r, "245", "ab", CaseMode::UPPER); }));
+}
+
+static void TestBuildField() {
+	Record r = Sample();
+	Record out = BuildField(r, "=953  \\\\$a{245$a} / {700$a}");
+	CHECK_EQ(out.fields.size(), size_t(8));
+	const Field &f = out.fields[7]; // 953 sorts after 700 in tag order
+	CHECK_EQ(f.tag, std::string("953"));
+	CHECK_EQ(f.ind1, std::string(" "));
+	CHECK_EQ(f.ind2, std::string(" "));
+	CHECK_EQ(f.subfields.size(), size_t(1));
+	CHECK_EQ(f.subfields[0].value, std::string("Cooking basics : / Smith, Jane."));
+	CHECK_EQ(r.fields.size(), size_t(7)); // input untouched
+
+	// Wildcard tag takes the FIRST matching subfield; a missing placeholder
+	// substitutes ""; literal indicators and multiple codes work.
+	out = BuildField(r, "=940  01$a{6..$a}$b{100$a}end");
+	const Field &g = out.fields[7];
+	CHECK_EQ(g.ind1, std::string("0"));
+	CHECK_EQ(g.ind2, std::string("1"));
+	CHECK_EQ(g.subfields[0].value, std::string("Cooking."));
+	CHECK_EQ(g.subfields[1].value, std::string("end")); // {100$a} → ""
+
+	// A substituted value's '$' stays literal, and {dollar} in the template
+	// itself still means '$'.
+	Record money = Rec({DF("245", "0", "0", {{"a", "Costs $5"}})});
+	out = BuildField(money, "=500  \\\\$a{245$a} for {dollar}2");
+	CHECK_EQ(out.fields[1].subfields[0].value, std::string("Costs $5 for $2"));
+
+	// Non-placeholder braces pass through verbatim (a literal '$' outside a
+	// placeholder is still a breaker subfield delimiter — write {dollar}).
+	out = BuildField(money, "=500  \\\\$a{brace} {245}");
+	CHECK_EQ(out.fields[1].subfields[0].value, std::string("{brace} {245}"));
+
+	CHECK(ThrowsMarc([&] { BuildField(r, "not a field line"); }));
+	CHECK(ThrowsMarc([&] { BuildField(r, "=95"); }));
+	CHECK(ThrowsMarc([&] { BuildField(r, "=LDR  00000nam a2200000 a 4500"); }));
+}
+
+static void TestRemoveFieldsWhere() {
+	Record r = Sample();
+	Record out = RemoveFieldsWhere(r, "650", "a", "^Cook");
+	CHECK_EQ(out.fields.size(), size_t(5)); // both 650s start with Cook
+	CHECK_EQ(out.fields[3].tag, std::string("651"));
+	CHECK_EQ(r.fields.size(), size_t(7)); // input untouched
+
+	out = RemoveFieldsWhere(r, "6..", "2", "^fast$");
+	CHECK_EQ(out.fields.size(), size_t(6)); // only the $2 fast 650 goes
+	CHECK_EQ(out.fields[3].subfields[0].value, std::string("Cooking."));
+
+	// Search semantics (substring), case-insensitivity flag, no-match no-op.
+	out = RemoveFieldsWhere(r, "650", "a", "ery");
+	CHECK_EQ(out.fields.size(), size_t(6));
+	out = RemoveFieldsWhere(r, "650", "a", "COOK");
+	CHECK_EQ(out.fields.size(), size_t(7));
+	out = RemoveFieldsWhere(r, "650", "a", "COOK", true);
+	CHECK_EQ(out.fields.size(), size_t(5));
+	out = RemoveFieldsWhere(r, "650", "x", "nothing matches");
+	CHECK_EQ(out.fields.size(), size_t(7));
+
+	CHECK(ThrowsMarc([&] { RemoveFieldsWhere(r, "65", "a", "x"); }));
+	CHECK(ThrowsMarc([&] { RemoveFieldsWhere(r, "650", "ab", "x"); }));
+	CHECK(ThrowsMarc([&] { RemoveFieldsWhere(r, "650", "a", "(unclosed"); }));
+}
+
 int main() {
 	TestAddField();
 	TestRemoveFields();
@@ -348,5 +639,14 @@ int main() {
 	TestSetIndicators();
 	TestMerge();
 	TestRenderAndDiff();
+	TestMoveField();
+	TestCopyField();
+	TestSwapFields();
+	TestSortFields();
+	TestRenameSubfield();
+	TestApplyReplaceRules();
+	TestChangeCase();
+	TestBuildField();
+	TestRemoveFieldsWhere();
 	return CHECKS_MAIN_RESULT();
 }

@@ -1,0 +1,72 @@
+# name: test/sql/marc_unimarc.test
+# description: UNIMARC structural reading (see docs/UNIMARC.md for scope and limits)
+# group: [marc]
+
+require marc21
+
+# test/data/unimarc.mrc is one hand-built UTF-8 UNIMARC bibliographic
+# record (French): 001, 100 (general processing data with character-set
+# positions 26-29 = "50", ISO 10646), 101, 200, 210, 700.  UNIMARC leaves
+# leader/09 undefined (blank), so encoding auto-detection would fall back to
+# MARC-8 -- UNIMARC reads must pass encoding := 'utf8' explicitly.
+
+# The ISO 2709 structure parses: one record, six fields, UNIMARC leader
+# preserved verbatim (entry map "450 ", trailing blank and all).
+query III
+SELECT record_no, len(fields), leader = '00256nam0 2200097   450 '
+FROM read_marc('test/data/unimarc.mrc', encoding := 'utf8');
+----
+1	6	true
+
+# UNIMARC tags address normally; UTF-8 values (including accents) decode
+# intact.  200 is the UNIMARC title field ($a title proper, $f statement of
+# responsibility) -- field SEMANTICS are UNIMARC's, not MARC 21's.
+query IIII
+SELECT marc_control_field(fields, '001'),
+       marc_subfield(fields, '200', 'a'),
+       marc_subfield(fields, '200', 'f'),
+       marc_subfield(fields, '210', 'c')
+FROM read_marc('test/data/unimarc.mrc', encoding := 'utf8');
+----
+UNI0001	Les canards du Québec	Amélie Côté	Éditions du Lac
+
+# Indicators and repeatable addressing work structurally.
+query III
+SELECT f[1].ind1 = ' ', f[1].ind2, len(f[1].subfields)
+FROM (SELECT marc_fields(fields, '700') AS f
+      FROM read_marc('test/data/unimarc.mrc', encoding := 'utf8'));
+----
+true	1	2
+
+# The UNIMARC character-set declaration lives in 100$a positions 26-29, not
+# in the leader: "50" = ISO 10646 (Unicode).
+query I
+SELECT substr(marc_subfield(fields, '100', 'a'), 27, 2)
+FROM read_marc('test/data/unimarc.mrc', encoding := 'utf8');
+----
+50
+
+# Honesty check: leader/09 is blank, so marc_encoding_scheme (a MARC 21
+# helper) calls this record marc8 and AUTO decoding would mangle the accents.
+# This is documented behavior -- always pass encoding := 'utf8' for UNIMARC.
+query I
+SELECT marc_encoding_scheme(leader)
+FROM read_marc('test/data/unimarc.mrc', encoding := 'utf8');
+----
+marc8
+
+query I
+SELECT marc_subfield(fields, '200', 'a') != 'Les canards du Québec'
+FROM read_marc('test/data/unimarc.mrc');
+----
+true
+
+# MARC 21 rulepack validation is NOT meaningful for UNIMARC: the MARC 21
+# bibliographic schema knows no 200/210 tags.  Structural marc_validate still
+# runs (it checks ISO 2709 shape plus MARC 21 conventions); expect the 245
+# complaint from a bib-typed leader with no MARC 21 title field.
+query I
+SELECT len(marc_validate(leader, fields)) >= 1
+FROM read_marc('test/data/unimarc.mrc', encoding := 'utf8');
+----
+true

@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- XSLT crosswalk fixtures: three records exercising diacritics, 880
+     alternate scripts, 260-vs-264 imprints, linking entries and series. -->
+<collection xmlns="http://www.loc.gov/MARC21/slim">
+  <record>
+    <!-- 260-style imprint, diacritics, series, host item -->
+    <leader>00000nam a2200000 a 4500</leader>
+    <controlfield tag="001">xslt-fx-0001</controlfield>
+    <controlfield tag="003">DKDLA</controlfield>
+    <controlfield tag="008">190315s1998    gw a     b    001 0 ger d</controlfield>
+    <datafield tag="010" ind1=" " ind2=" ">
+      <subfield code="a">   98765432 </subfield>
+    </datafield>
+    <datafield tag="020" ind1=" " ind2=" ">
+      <subfield code="a">3161484100</subfield>
+      <subfield code="z">3161484101</subfield>
+    </datafield>
+    <datafield tag="041" ind1="0" ind2=" ">
+      <subfield code="a">ger</subfield>
+      <subfield code="a">fre</subfield>
+    </datafield>
+    <datafield tag="050" ind1=" " ind2="0">
+      <subfield code="a">PT2625.A44</subfield>
+      <subfield code="b">Z613 1998</subfield>
+    </datafield>
+    <datafield tag="100" ind1="1" ind2=" ">
+      <subfield code="a">Kjærgaard, Søren,</subfield>
+      <subfield code="d">1954-2011,</subfield>
+      <subfield code="e">author.</subfield>
+      <subfield code="4">aut</subfield>
+    </datafield>
+    <datafield tag="245" ind1="1" ind2="4">
+      <subfield code="a">Die Erzählungen des Nordens :</subfield>
+      <subfield code="b">Übersetzungen aus dem Dänischen /</subfield>
+      <subfield code="c">Søren Kjærgaard ; herausgegeben von Käthe Møller.</subfield>
+    </datafield>
+    <datafield tag="250" ind1=" " ind2=" ">
+      <subfield code="a">2., überarbeitete Auflage.</subfield>
+    </datafield>
+    <datafield tag="260" ind1=" " ind2=" ">
+      <subfield code="a">Tübingen :</subfield>
+      <subfield code="b">Mohr Siebeck,</subfield>
+      <subfield code="c">1998.</subfield>
+    </datafield>
+    <datafield tag="300" ind1=" " ind2=" ">
+      <subfield code="a">xii, 340 pages :</subfield>
+      <subfield code="b">illustrations ;</subfield>
+      <subfield code="c">24 cm.</subfield>
+    </datafield>
+    <datafield tag="490" ind1="1" ind2=" ">
+      <subfield code="a">Nordische Bibliothek ;</subfield>
+      <subfield code="v">Band 17</subfield>
+    </datafield>
+    <datafield tag="504" ind1=" " ind2=" ">
+      <subfield code="a">Includes bibliographical references and index.</subfield>
+    </datafield>
+    <datafield tag="520" ind1=" " ind2=" ">
+      <subfield code="a">A German translation of Danish short prose, with commentary.</subfield>
+    </datafield>
+    <datafield tag="600" ind1="1" ind2="0">
+      <subfield code="a">Andersen, H. C.</subfield>
+      <subfield code="q">(Hans Christian),</subfield>
+      <subfield code="d">1805-1875</subfield>
+      <subfield code="x">Translations into German.</subfield>
+    </datafield>
+    <datafield tag="650" ind1=" " ind2="0">
+      <subfield code="a">Danish literature</subfield>
+      <subfield code="y">19th century</subfield>
+      <subfield code="v">Translations.</subfield>
+    </datafield>
+    <datafield tag="655" ind1=" " ind2="7">
+      <subfield code="a">Short stories.</subfield>
+      <subfield code="2">lcgft</subfield>
+    </datafield>
+    <datafield tag="700" ind1="1" ind2=" ">
+      <subfield code="a">Møller, Käthe,</subfield>
+      <subfield code="e">editor.</subfield>
+    </datafield>
+    <datafield tag="773" ind1="0" ind2=" ">
+      <subfield code="t">Nordische Studien</subfield>
+      <subfield code="x">1021-0067</subfield>
+      <subfield code="g">Jahrgang 12</subfield>
+    </datafield>
+    <datafield tag="830" ind1=" " ind2="0">
+      <subfield code="a">Nordische Bibliothek ;</subfield>
+      <subfield code="v">Bd. 17.</subfield>
+    </datafield>
+  </record>
+  <record>
+    <!-- 264 RDA imprint with copyright date, Cyrillic 880 pair -->
+    <leader>00000nam a2200000 i 4500</leader>
+    <controlfield tag="001">xslt-fx-0002</controlfield>
+    <controlfield tag="003">RuMoRGB</controlfield>
+    <controlfield tag="008">210607t20212021ru            000 j rus d</controlfield>
+    <datafield tag="020" ind1=" " ind2=" ">
+      <subfield code="a">9785171234567</subfield>
+    </datafield>
+    <datafield tag="100" ind1="1" ind2=" ">
+      <subfield code="6">880-01</subfield>
+      <subfield code="a">Chekhova, Mariia,</subfield>
+      <subfield code="e">author.</subfield>
+    </datafield>
+    <datafield tag="245" ind1="1" ind2="0">
+      <subfield code="6">880-02</subfield>
+      <subfield code="a">Rasskazy o more /</subfield>
+      <subfield code="c">Mariia Chekhova.</subfield>
+    </datafield>
+    <datafield tag="264" ind1=" " ind2="1">
+      <subfield code="a">Moskva :</subfield>
+      <subfield code="b">AST,</subfield>
+      <subfield code="c">2021.</subfield>
+    </datafield>
+    <datafield tag="264" ind1=" " ind2="4">
+      <subfield code="c">©2021</subfield>
+    </datafield>
+    <datafield tag="300" ind1=" " ind2=" ">
+      <subfield code="a">254 pages ;</subfield>
+      <subfield code="c">21 cm</subfield>
+    </datafield>
+    <datafield tag="650" ind1=" " ind2="0">
+      <subfield code="a">Sea stories, Russian.</subfield>
+    </datafield>
+    <datafield tag="880" ind1="1" ind2=" ">
+      <subfield code="6">100-01</subfield>
+      <subfield code="a">Чехова, Мария,</subfield>
+      <subfield code="e">автор.</subfield>
+    </datafield>
+    <datafield tag="880" ind1="1" ind2="0">
+      <subfield code="6">245-02</subfield>
+      <subfield code="a">Рассказы о море /</subfield>
+      <subfield code="c">Мария Чехова.</subfield>
+    </datafield>
+  </record>
+  <record>
+    <!-- serial with nonfiling article, succession links, URL -->
+    <leader>00000nas a2200000 a 4500</leader>
+    <controlfield tag="001">xslt-fx-0003</controlfield>
+    <controlfield tag="008">850101c19859999enkwr p       0   a0eng d</controlfield>
+    <datafield tag="022" ind1=" " ind2=" ">
+      <subfield code="a">0951-9998</subfield>
+    </datafield>
+    <datafield tag="245" ind1="0" ind2="4">
+      <subfield code="a">The économiste review.</subfield>
+    </datafield>
+    <datafield tag="264" ind1=" " ind2="1">
+      <subfield code="a">London :</subfield>
+      <subfield code="b">Meridian Press,</subfield>
+      <subfield code="c">1985-</subfield>
+    </datafield>
+    <datafield tag="310" ind1=" " ind2=" ">
+      <subfield code="a">Weekly</subfield>
+    </datafield>
+    <datafield tag="650" ind1=" " ind2="0">
+      <subfield code="a">Economics</subfield>
+      <subfield code="z">Great Britain</subfield>
+      <subfield code="v">Periodicals.</subfield>
+    </datafield>
+    <datafield tag="780" ind1="0" ind2="0">
+      <subfield code="t">Economic weekly bulletin</subfield>
+      <subfield code="x">0011-2233</subfield>
+    </datafield>
+    <datafield tag="785" ind1="0" ind2="0">
+      <subfield code="t">The new économiste</subfield>
+      <subfield code="x">1477-8888</subfield>
+    </datafield>
+    <datafield tag="856" ind1="4" ind2="0">
+      <subfield code="u">https://example.org/economiste</subfield>
+      <subfield code="z">Current issues online</subfield>
+    </datafield>
+  </record>
+</collection>

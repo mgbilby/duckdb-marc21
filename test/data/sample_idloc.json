@@ -1,0 +1,29 @@
+{
+  "q": "Twain, Mark",
+  "count": 2,
+  "pagesize": 5,
+  "start": 1,
+  "sortmethod": "rank",
+  "searchtype": "keyword",
+  "directory": "/authorities/names/",
+  "hits": [
+    {
+      "suggestLabel": "Twain, Mark, 1835-1910",
+      "uri": "http://id.loc.gov/authorities/names/n79021164",
+      "aLabel": "Twain, Mark, 1835-1910",
+      "token": "n79021164",
+      "vLabel": "",
+      "code": "",
+      "rank": "1091.9"
+    },
+    {
+      "suggestLabel": "Twain, Mark, 1835-1910. Adventures of Huckleberry Finn",
+      "uri": "http://id.loc.gov/authorities/names/n79132705",
+      "aLabel": "Twain, Mark, 1835-1910. Adventures of Huckleberry Finn",
+      "token": "n79132705",
+      "vLabel": "",
+      "code": "",
+      "rank": "716.6"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/">
+  <responseDate>2026-09-04T00:00:00Z</responseDate>
+  <request verb="ListRecords" metadataPrefix="marc21" set="books">https://oai.example.org/oai</request>
+  <ListRecords>
+    <record>
+      <header><identifier>oai:paged:1</identifier><datestamp>2026-01-01</datestamp></header>
+      <metadata>
+        <record xmlns="http://www.loc.gov/MARC21/slim">
+          <leader>00109nam a2200061 a 4500</leader>
+          <controlfield tag="001">paged-1</controlfield>
+          <datafield tag="245" ind1="1" ind2="0">
+            <subfield code="a">Paged record one</subfield>
+          </datafield>
+        </record>
+      </metadata>
+    </record>
+    <record>
+      <header><identifier>oai:paged:2</identifier><datestamp>2026-01-02</datestamp></header>
+      <metadata>
+        <record xmlns="http://www.loc.gov/MARC21/slim">
+          <leader>00109nam a2200061 a 4500</leader>
+          <controlfield tag="001">paged-2</controlfield>
+          <datafield tag="245" ind1="0" ind2="0">
+            <subfield code="a">Paged record two</subfield>
+          </datafield>
+        </record>
+      </metadata>
+    </record>
+    <resumptionToken completeListSize="5" cursor="0" expirationDate="2026-09-05T00:00:00Z">books!marc21!2!x/y+z</resumptionToken>
+  </ListRecords>
+</OAI-PMH>

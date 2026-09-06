@@ -1,0 +1,85 @@
+# name: test/sql/marc_oai.test
+# description: OAI-PMH resumption-token paging (src/macros/oai.sql) — URL builders, token extraction against a local paged fixture, and the page reader's URL shape
+# group: [marc]
+
+require marc21
+
+# ---------------------------------------------------------------------------
+# URL builders (pure SQL over core url_encode).
+# ---------------------------------------------------------------------------
+
+query I
+SELECT marc_oai_url('https://oai.example.org/oai');
+----
+https://oai.example.org/oai?verb=ListRecords&metadataPrefix=marc21
+
+query I
+SELECT marc_oai_url('https://oai.example.org/oai', metadata_prefix := 'marcxml', set_ := 'rare books');
+----
+https://oai.example.org/oai?verb=ListRecords&metadataPrefix=marcxml&set=rare%20books
+
+query I
+SELECT marc_oai_url('https://oai.example.org/oai', from_ := '2026-01-01', until_ := '2026-01-31T23:59:59Z');
+----
+https://oai.example.org/oai?verb=ListRecords&metadataPrefix=marc21&from=2026-01-01&until=2026-01-31T23%3A59%3A59Z
+
+# The follow-up URL carries the token as the only argument, url-encoded.
+query I
+SELECT marc_oai_page_url('https://oai.example.org/oai', 'books!marc21!2!x/y+z');
+----
+https://oai.example.org/oai?verb=ListRecords&resumptionToken=books%21marc21%212%21x%2Fy%2Bz
+
+# ---------------------------------------------------------------------------
+# Token extraction against the local fixture (read_text needs no httpfs).
+# ---------------------------------------------------------------------------
+
+query IIII
+SELECT token, complete_list_size, cursor, expiration_date
+FROM marc_oai_token('test/data/oai_paged.xml');
+----
+books!marc21!2!x/y+z	5	0	2026-09-05T00:00:00Z
+
+# The records of the same page surface through read_marcxml as usual.
+query II
+SELECT control_number, value FROM read_marcxml('test/data/oai_paged.xml')
+WHERE tag = '245' ORDER BY record_no;
+----
+paged-1	Paged record one
+paged-2	Paged record two
+
+# A page without a resumptionToken (the older single-page fixture) is the
+# end of the list: NULL token, NULL attributes.
+query IIII
+SELECT token, complete_list_size, cursor, expiration_date
+FROM marc_oai_token('test/data/sample_oai.xml');
+----
+NULL	NULL	NULL	NULL
+
+# The scalar form over text: empty and self-closing elements end the list;
+# surrounding whitespace is trimmed; attribute-free elements work.
+query IIII
+SELECT marc_oai_extract_token('<a><resumptionToken>  tok-1 </resumptionToken></a>'),
+       marc_oai_extract_token('<resumptionToken completeListSize="9" cursor="8"></resumptionToken>'),
+       marc_oai_extract_token('<resumptionToken/>'),
+       marc_oai_extract_token('<x:resumptionToken cursor="2">ns-token</x:resumptionToken>');
+----
+tok-1	NULL	NULL	ns-token
+
+# ---------------------------------------------------------------------------
+# marc_readoai_page is read_marcxml over marc_oai_page_url — remote paging
+# needs httpfs and a live repository, so it is validated pre-merge, not
+# here.  The two-statement iteration, driven by hand for one step: tokens
+# feed marc_oai_page_url, and a NULL token means stop.
+# ---------------------------------------------------------------------------
+
+query I
+SELECT marc_oai_page_url('https://oai.example.org/oai', token)
+FROM marc_oai_token('test/data/oai_paged.xml');
+----
+https://oai.example.org/oai?verb=ListRecords&resumptionToken=books%21marc21%212%21x%2Fy%2Bz
+
+query I
+SELECT marc_oai_page_url('https://oai.example.org/oai', token) IS NULL
+FROM marc_oai_token('test/data/sample_oai.xml');
+----
+true

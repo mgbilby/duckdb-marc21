@@ -6,14 +6,33 @@
 [![DuckDB](https://img.shields.io/static/v1?label=duckdb&message=v1.5.4%2B&color=blue)](https://github.com/duckdb/duckdb/releases)
 [![Community downloads per week](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fcommunity-extensions.duckdb.org%2Fdownloads-last-week.json&query=%24.marc21&label=downloads%2Fweek&color=brightgreen)](https://duckdb.org/community_extensions/download_metrics)
 
-Read, write, validate, edit and analyze [MARC 21](https://www.loc.gov/marc/bibliographic/) bibliographic data within DuckDB. This extension has three broad areas of functionality:
-* reading/profiling MARC from standard serializations: [ISO 2709](https://www.loc.gov/marc/specifications/specrecstruc.html) binary (UTF-8 and [MARC-8](https://www.loc.gov/marc/specifications/speccharintro.html), decoded to NFC with the full LC code tables), [MARCXML](https://www.loc.gov/standards/marcxml/), [MARC-in-JSON](https://www.loc.gov/standards/mij/), breaker text (`.mrk`) and Aleph sequential — into a nested per-record schema or one row per subfield — plus live retrieval over SRU, OAI-PMH and [Z39.50](https://www.loc.gov/z3950/agency/) with a built-in dependency-free client
-* writing any of those formats back with `COPY`, including a complete UTF-8 ↔ MARC-8 crosswalk (ANSEL, Cyrillic, Greek, Hebrew, Arabic, EACC with escape designations)
-* cataloging-grade querying, validation and editing: [MARCspec](https://marcspec.github.io/MARCspec/) addressing, structural and [Avram](https://format.gbv.de/schema/avram/specification)-schema validation with embedded MARC 21 rulepacks, record editing/merge/diff, identifier and NACO normalization, deduplication, QA reports, Dublin Core / MODS crosswalks and a [FOLIO](https://folio.org/) connector
+Read, write, validate, edit, and analyze [MARC 21](https://www.loc.gov/marc/bibliographic/)
+bibliographic data with DuckDB, using filetypes, APIs and catalogs you already know.
 
-The implementation is 100% C++ so as to leverage the speed and power of DuckDB. Gzip compression and glob patterns are supported for reads (for example `catalogue/*.mrc.gz`). Queries parallelize across and within files. Character decodings are skipped when selected columns do not require them.
+| area | coverage | representative functions |
+|---|---|---|
+| **Read** | [ISO 2709](https://www.loc.gov/marc/specifications/specrecstruc.html) binary (UTF-8 and [MARC-8](https://www.loc.gov/marc/specifications/speccharintro.html), decoded to NFC), [MARCXML](https://www.loc.gov/standards/marcxml/), [MARC-in-JSON](https://www.loc.gov/standards/mij/), breaker `.mrk`, Aleph sequential, MicroLIF — nested per record or one row per subfield | `read_marc`, `read_marc_subfields`, `read_marc_raw`, `read_marcxml`, `read_marcjson`, `read_marc_breaker`, `read_alephseq`, `read_microlif` |
+| **Retrieve** | live records over SRU, OAI-PMH with resumption-token paging, and [Z39.50](https://www.loc.gov/z3950/agency/) via a built-in dependency-free client | `read_z3950`, `marc_readsru`, `marc_readoai`, `marc_readoai_page` |
+| **Write** | every read format written back through `COPY`, with a complete UTF-8 ↔ MARC-8 crosswalk (ANSEL, Cyrillic, Greek, Hebrew, Arabic, EACC with escape designations) | `COPY … (FORMAT marc \| marcxml \| mrk \| marcjson)` |
+| **Address** | [MARCspec](https://marcspec.github.io/MARCspec/) expressions, subfield and field accessors, leader and 008 positional decoding | `marc_spec`, `marc_subfield`, `marc_subfields`, `marc_fields`, `marc_leader_struct`, `marc_008_struct` |
+| **Validate** | structural checks by record type plus [Avram](https://format.gbv.de/schema/avram/specification) schema validation against embedded bibliographic, authority and holdings rulepacks | `marc_validate`, `marc_validate_bib`, `marc_validate_auth`, `marc_validate_holdings`, `marc_validate_avram`, `marc_validate_format` |
+| **Edit** | field and subfield surgery, indicator and case changes, reordering, merge with field protection, record diff, RDA 264 derivation | `marc_set_subfield`, `marc_add_field`, `marc_move_field`, `marc_swap_fields`, `marc_set_indicators`, `marc_sort_fields`, `marc_merge`, `marc_diff`, `marc_264_from_260` |
+| **Identify & dedupe** | ISBN/ISSN/LCCN/OCLC normalization, NACO headings, match keys, fingerprint and n-gram clustering, candidate review | `marc_isbn13`, `marc_issn`, `marc_lccn`, `marc_oclc`, `marc_naco`, `marc_matchkey`, `marc_fingerprint`, `marc_ngram_fingerprint`, `marc_dedupe_candidates`, `marc_cluster_headings` |
+| **Catalog** | RDA checks and expansion, 33X generation, call-number parsing and shelf sorting, record scaffolding | `marc_rda_check`, `marc_rda_expand`, `marc_generate_33x`, `marc_lcc_parse`, `marc_lcc_sortkey`, `marc_ddc_sortkey`, `marc_cutter_valid`, `marc_new_record` |
+| **Report** | whole-file profiling: tag and subfield frequency, completeness, error rollups, URL audits | `marc_report_tags`, `marc_report_subfields`, `marc_report_completeness`, `marc_report_errors`, `marc_summary`, `marc_check_urls` |
+| **Crosswalk & link** | Dublin Core, MODS, [BIBFRAME](https://www.loc.gov/bibframe/) 2.x JSON-LD, ISBD, UNIMARC labels, plus a 28-stylesheet embedded XSLT 1.0 library you can query and extend | `marc_dublin_core`, `marc_mods_xml`, `marc_bibframe_jsonld`, `marc_jsonld`, `marc_isbd`, `marc_unimarc_label`, `marc_xslt_functions` |
+| **Connect to ILSs** | [FOLIO](https://folio.org/) Source Record Storage, Alma (read and bib write-back), Koha, WorldShare — composed from URLs and SQL, no vendor SDKs | `marc_readfolio_srs`, `marc_parse_json`, `marc_readalma_bibs`, `marc_alma_update_bib`, `marc_readkoha`, `marc_readworldshare` |
+| **Accession** | [KBART](https://www.niso.org/standards-committees/kbart) title lists in and out, and spreadsheet-to-MARC mapping with presets for books, serials and e-resources | `marc_read_kbart`, `marc_kbart_to_marc`, `marc_kbart_856`, `marc_from_delimited`, `marc_delimited_preset_books` |
+| **Reconcile** | authority candidate lookup against VIAF, id.loc.gov and Wikidata | `marc_viaf_candidates`, `marc_idloc_candidates`, `marc_wikidata_candidates`, `marc_reconcile_headings` |
+| **Serials** | 863–865 enumeration expansion and holdings pairing | `marc_expand_863`, `marc_holdings_pairs`, `marc_86x_zip` |
 
-The extension is built from scratch and cleanly licensed: parsers, MARC-8 tables and writers derive from ISO 2709 and the Library of Congress specifications only, not previous software. When similar open source software is available, differential fuzzing verifies cleanness. `read_z3950` requires OS-level networking and is not available in WASM.
+Full documentation in [`docs/REFERENCE.md`](docs/REFERENCE.md).
+
+- Pure C++ leverages the speed and power of DuckDB
+- Read Gzip and glob patterns (`catalogue/*.mrc.gz`), parallelize operations in files, and skip character decoding for unselected columns 
+- Built from ISO 2709 and Library of Congress specifications, not prior
+  software (see [`audit/`](audit/).
+- `read_z3950` needs OS-level networking and is unavailable in browser-based builds.
 
 ## Installation
 

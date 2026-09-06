@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Hand-built MAB2 record in the MARC 21 slim XML container: the shape
+     produced by reading a MAB2 ISO 2709 file with
+     read_marc(..., encoding := 'utf8') and writing it with
+     COPY (FORMAT marcxml), so each MAB2 field number is a datafield @tag.
+     MAB2 fields are largely subfield-less, and this fixture shows both
+     shapes a reader can produce - fields whose content the reader put in a
+     $a, and fields whose content is the datafield's own text - because the
+     crosswalk accepts either.  German diacritics. -->
+<record xmlns="http://www.loc.gov/MARC21/slim">
+  <leader>00000nM2.01200024      h</leader>
+  <datafield tag="001" ind1=" " ind2=" ">
+    <subfield code="a">DE-101-980765432</subfield>
+  </datafield>
+  <datafield tag="002" ind1=" " ind2=" ">
+    <subfield code="a">19980312</subfield>
+  </datafield>
+  <datafield tag="025" ind1=" " ind2=" ">
+    <subfield code="a">(DE-599)ZDB980765432</subfield>
+  </datafield>
+  <datafield tag="100" ind1=" " ind2=" ">
+    <subfield code="a">Möller, Käthe</subfield>
+  </datafield>
+  <datafield tag="104" ind1=" " ind2=" ">
+    <subfield code="a">Schröder, Ulrich</subfield>
+  </datafield>
+  <datafield tag="200" ind1=" " ind2=" ">
+    <subfield code="a">Deutsche Ornithologen-Gesellschaft</subfield>
+  </datafield>
+  <datafield tag="331" ind1=" " ind2=" ">Die Vögel der Ostsee</datafield>
+  <datafield tag="335" ind1=" " ind2=" ">ein Bestimmungsbuch</datafield>
+  <datafield tag="359" ind1=" " ind2=" ">Käthe Möller ; Ulrich Schröder</datafield>
+  <datafield tag="403" ind1=" " ind2=" ">2., überarbeitete Auflage</datafield>
+  <datafield tag="410" ind1=" " ind2=" ">Hamburg</datafield>
+  <datafield tag="412" ind1=" " ind2=" ">Nordverlag</datafield>
+  <datafield tag="425" ind1=" " ind2=" ">1998</datafield>
+  <datafield tag="433" ind1=" " ind2=" ">286 S.</datafield>
+  <datafield tag="434" ind1=" " ind2=" ">Ill., Kt.</datafield>
+  <datafield tag="435" ind1=" " ind2=" ">24 cm</datafield>
+  <datafield tag="451" ind1=" " ind2=" ">Naturführer Nord</datafield>
+  <datafield tag="455" ind1=" " ind2=" ">Band 7</datafield>
+  <datafield tag="501" ind1=" " ind2=" ">Literaturverzeichnis Seite 271-280</datafield>
+  <datafield tag="540" ind1=" " ind2=" ">
+    <subfield code="a">3-12-345678-9</subfield>
+  </datafield>
+  <datafield tag="700" ind1=" " ind2=" ">
+    <subfield code="a">598.2943</subfield>
+  </datafield>
+  <datafield tag="902" ind1=" " ind2=" ">Vögel</datafield>
+  <datafield tag="907" ind1=" " ind2=" ">Ostsee</datafield>
+</record>

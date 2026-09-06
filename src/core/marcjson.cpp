@@ -12,7 +12,10 @@
 //!   * Envelope unwrapping runs per object, only while the object has no
 //!     "fields" key: first {"parsedRecord": {...}} descends into that object,
 //!     then {"content": {...}} descends into that one — covering both
-//!     {"content": {...}} and {"parsedRecord": {"content": {...}}}.
+//!     {"content": {...}} and {"parsedRecord": {"content": {...}}}.  A
+//!     top-level object carrying none of those keys but a "sourceRecords" or
+//!     "records" ARRAY is a FOLIO collection response; its elements are read
+//!     as record objects.
 //!   * A control tag (< "010") must carry a JSON string, a data tag an
 //!     object — a mismatch is an error, keeping control-ness tag-derived
 //!     exactly as in the record model (and marcref.Field.is_control).
@@ -143,6 +146,21 @@ void RecordsFromValue(const JsonValue &v, std::vector<Record> &out) {
 			out.push_back(RecordFromObject(item));
 		}
 	} else if (v.type == JsonValue::Type::OBJ) {
+		// FOLIO collection envelopes: GET /source-storage/source-records
+		// answers {"sourceRecords": [...], "totalRecords": N} and
+		// GET /source-storage/records {"records": [...], ...}.  Unwrap only
+		// when the object cannot itself be a record (none of the per-record
+		// keys are present), so a record that merely *contains* such a member
+		// name is never misread.
+		if (!v.Get("fields") && !v.Get("parsedRecord") && !v.Get("content")) {
+			for (const char *key : {"sourceRecords", "records"}) {
+				const JsonValue *coll = v.Get(key);
+				if (coll && coll->type == JsonValue::Type::ARR) {
+					RecordsFromValue(*coll, out);
+					return;
+				}
+			}
+		}
 		out.push_back(RecordFromObject(v));
 	} else {
 		throw MarcError("marcjson: top-level value is neither an object nor an array");

@@ -1,0 +1,110 @@
+NOTICE for the duckdb-marc21 extension
+======================================
+
+The source code of this project is original work distributed under the
+MIT license in LICENSE.  The data tables and schemas embedded in the
+project derive from the public sources listed below.  Full provenance
+detail is in audit/PROVENANCE.md; the similarity audit demonstrating that
+no third-party MARC software code was copied is in audit/SIMILARITY.md.
+
+
+1. Unicode Character Database (normalization tables)
+----------------------------------------------------
+
+The files src/include/marc/unicode_tables.hpp (canonical combining
+classes, canonical decompositions, and primary composites) contain data
+derived from the Unicode Character Database, version 14.0.0 (extracted
+via Python's unicodedata module), and src/core/unicode_nfc.cpp consumes
+those tables.  UCD data is © Unicode, Inc. and is used and redistributed
+under the Unicode License v3 (SPDX: Unicode-3.0), reproduced here as
+required:
+
+    UNICODE LICENSE V3
+
+    COPYRIGHT AND PERMISSION NOTICE
+
+    Copyright © 1991-2024 Unicode, Inc.
+
+    NOTICE TO USER: Carefully read the following legal agreement. BY
+    DOWNLOADING, INSTALLING, COPYING OR OTHERWISE USING DATA FILES, AND/OR
+    SOFTWARE, YOU UNEQUIVOCALLY ACCEPT, AND AGREE TO BE BOUND BY, ALL OF
+    THE TERMS AND CONDITIONS OF THIS AGREEMENT. IF YOU DO NOT AGREE, DO NOT
+    DOWNLOAD, INSTALL, COPY, DISTRIBUTE OR USE THE DATA FILES OR SOFTWARE.
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of data files and any associated documentation (the "Data Files")
+    or software and any associated documentation (the "Software") to deal
+    in the Data Files or Software without restriction, including without
+    limitation the rights to use, copy, modify, merge, publish, distribute,
+    and/or sell copies of the Data Files or Software, and to permit persons
+    to whom the Data Files or Software are furnished to do so, provided
+    that either (a) this copyright and permission notice appear with all
+    copies of the Data Files or Software, or (b) this copyright and
+    permission notice appear in associated Documentation.
+
+    THE DATA FILES AND SOFTWARE ARE PROVIDED "AS IS", WITHOUT WARRANTY OF
+    ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+    WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+    NONINFRINGEMENT OF THIRD PARTY RIGHTS. IN NO EVENT SHALL THE COPYRIGHT
+    HOLDER OR HOLDERS INCLUDED IN THIS NOTICE BE LIABLE FOR ANY CLAIM, OR
+    ANY SPECIAL INDIRECT OR CONSEQUENTIAL DAMAGES, OR ANY DAMAGES
+    WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+    ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+    OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THE DATA FILES OR
+    SOFTWARE.
+
+    Except as contained in this notice, the name of a copyright holder
+    shall not be used in advertising or otherwise to promote the sale, use
+    or other dealings in these Data Files or Software without prior written
+    authorization of the copyright holder.
+
+
+2. MARC-8 code tables (Library of Congress)
+-------------------------------------------
+
+src/include/marc/marc8_tables.hpp is generated from the Library of
+Congress "MARC-8 to Unicode XML mapping file" (codetables.xml), published
+at https://www.loc.gov/marc/specifications/codetables.xml as part of the
+MARC 21 Character Sets specification.  As a work of the United States
+federal government, that mapping data is in the public domain.  The
+generated header keeps LC's primary <ucs> mapping column (documented
+alternative mappings are not used).  No code or data from any third-party
+MARC-8 implementation (pymarc, MARC::Charset, MARC4J, yaz, etc.) is
+included.
+
+
+3. Avram schemas
+----------------
+
+The files schemas/*.avram.json were written by hand for this project from
+the Library of Congress MARC 21 format documentation (Bibliographic,
+Authority, Holdings), following the Avram schema language specification
+published by the Verbundzentrale des GBV (VZG) at
+https://format.gbv.de/schema/avram/specification.  The Avram
+specification is available under CC0; the schema files here are original
+expression of LC's publicly documented format rules and carry this
+project's MIT license.  They are not copies of any schema published by
+GBV or others (see audit/SIMILARITY.md for the comparison).
+
+
+4. Z39.50 client
+----------------
+
+src/core/z3950.cpp, src/core/z3950_socket.cpp and the corresponding
+headers implement a client subset of ANSI/NISO Z39.50-1995 (Information
+Retrieval: Application Service Definition and Protocol Specification),
+including a minimal BER (ITU-T X.690) encoder/decoder, written directly
+from the standards' ASN.1 module and encoding rules.  No code from YAZ or
+any other Z39.50 toolkit is included.
+
+This product includes crosswalks written from the "UNIMARC Manual:
+Bibliographic Format" (IFLA), licensed CC BY 4.0 —
+https://www.ifla.org/publications/unimarc-formats-and-related-documentation/
+
+This product includes a display macro written from "ISBD: International
+Standard Bibliographic Description, Consolidated Edition" (IFLA),
+licensed CC BY 4.0.
+
+The national delta layers in xslt/intl/ for UNIMARC-derived formats
+(rusmarc-to-marc21.xsl, marc21-to-rusmarc.xsl) build on those UNIMARC
+crosswalks by xsl:import and carry the same IFLA CC BY 4.0 attribution.

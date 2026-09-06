@@ -5,6 +5,7 @@
 //! work.  A constant spec/schema argument is parsed once at bind time.
 
 #include "marc21_extension.hpp"
+#include "marc/compat.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
@@ -19,7 +20,7 @@ namespace {
 static idx_t StructChild(const LogicalType &type, const string &name) {
 	auto &children = StructType::GetChildTypes(type);
 	for (idx_t i = 0; i < children.size(); i++) {
-		if (StringUtil::CIEquals(children[i].first, name)) {
+		if (StringUtil::CIEquals(MarcName(children[i].first), name)) {
 			return i;
 		}
 	}

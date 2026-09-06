@@ -19,7 +19,12 @@ Value MarcFieldsToValue(const marc::Record &rec);
 marc::Record MarcValuesToRecord(const Value &leader, const Value &fields);
 Value MarcStringsToList(const std::vector<std::string> &strings);
 void RegisterMarcEditScalars(ExtensionLoader &loader);
+void RegisterMarcClusterScalars(ExtensionLoader &loader);
+void RegisterMarcAuthlinkScalars(ExtensionLoader &loader);
 void RegisterMarcZ3950(ExtensionLoader &loader);
+//! Table function marc_xslt_functions() plus the marc_xslt_stylesheet /
+//! marc_xslt_library scalars over the embedded crosswalk registry.
+void RegisterMarcXslt(ExtensionLoader &loader);
 
 class Marc21Extension : public Extension {
 public:

@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- BIBFRAME crosswalk fixtures: a monograph rich in the mapped fields and
+     a French serial exercising Leader/06-07, 022 and a repeated 336. -->
+<collection xmlns="http://www.loc.gov/MARC21/slim">
+  <record>
+    <leader>01234nam a2200349 a 4500</leader>
+    <controlfield tag="001">bf0000001</controlfield>
+    <controlfield tag="008">890201s1989    nyua          001 0 eng d</controlfield>
+    <datafield tag="010" ind1=" " ind2=" ">
+      <subfield code="a">   89012345 </subfield>
+    </datafield>
+    <datafield tag="020" ind1=" " ind2=" ">
+      <subfield code="a">0-306-40615-2 (pbk.)</subfield>
+    </datafield>
+    <datafield tag="035" ind1=" " ind2=" ">
+      <subfield code="a">(OCoLC)ocm00012345</subfield>
+    </datafield>
+    <datafield tag="050" ind1="0" ind2="0">
+      <subfield code="a">QL737.C4</subfield>
+      <subfield code="b">B47 1989</subfield>
+    </datafield>
+    <datafield tag="082" ind1="0" ind2="0">
+      <subfield code="a">599.5</subfield>
+    </datafield>
+    <datafield tag="100" ind1="1" ind2=" ">
+      <subfield code="a">Berger, Melvin,</subfield>
+      <subfield code="e">author.</subfield>
+      <subfield code="4">aut</subfield>
+    </datafield>
+    <datafield tag="245" ind1="1" ind2="0">
+      <subfield code="a">Whale watchers :</subfield>
+      <subfield code="b">a guide to the cetaceans /</subfield>
+      <subfield code="c">by Melvin Berger ; illustrated by Käthe Møller.</subfield>
+    </datafield>
+    <datafield tag="264" ind1=" " ind2="1">
+      <subfield code="a">New York :</subfield>
+      <subfield code="b">Pond Press,</subfield>
+      <subfield code="c">1989.</subfield>
+    </datafield>
+    <datafield tag="300" ind1=" " ind2=" ">
+      <subfield code="a">xii, 178 pages :</subfield>
+      <subfield code="b">illustrations ;</subfield>
+      <subfield code="c">24 cm</subfield>
+    </datafield>
+    <datafield tag="336" ind1=" " ind2=" ">
+      <subfield code="a">text</subfield>
+      <subfield code="b">txt</subfield>
+      <subfield code="2">rdacontent</subfield>
+    </datafield>
+    <datafield tag="337" ind1=" " ind2=" ">
+      <subfield code="a">unmediated</subfield>
+      <subfield code="b">n</subfield>
+      <subfield code="2">rdamedia</subfield>
+    </datafield>
+    <datafield tag="338" ind1=" " ind2=" ">
+      <subfield code="a">volume</subfield>
+      <subfield code="b">nc</subfield>
+      <subfield code="2">rdacarrier</subfield>
+    </datafield>
+    <datafield tag="650" ind1=" " ind2="0">
+      <subfield code="a">Whales</subfield>
+      <subfield code="v">Guidebooks.</subfield>
+      <subfield code="0">http://id.loc.gov/authorities/subjects/sh85146200</subfield>
+    </datafield>
+    <datafield tag="651" ind1=" " ind2="0">
+      <subfield code="a">North Atlantic Ocean.</subfield>
+    </datafield>
+    <datafield tag="700" ind1="1" ind2=" ">
+      <subfield code="a">Møller, Käthe,</subfield>
+      <subfield code="e">illustrator.</subfield>
+    </datafield>
+    <datafield tag="852" ind1=" " ind2=" ">
+      <subfield code="a">Main Library</subfield>
+      <subfield code="b">Stacks</subfield>
+      <subfield code="h">QL737.C4</subfield>
+      <subfield code="i">B47</subfield>
+    </datafield>
+    <datafield tag="856" ind1="4" ind2="0">
+      <subfield code="u">https://example.org/whales</subfield>
+    </datafield>
+  </record>
+  <record>
+    <leader>00987nas a2200289 a 4500</leader>
+    <controlfield tag="001">bf0000002</controlfield>
+    <controlfield tag="008">200115c20209999fr wr p       0   b0fre d</controlfield>
+    <datafield tag="022" ind1=" " ind2=" ">
+      <subfield code="a">2049-3630</subfield>
+    </datafield>
+    <datafield tag="245" ind1="0" ind2="0">
+      <subfield code="a">Revue des cétacés</subfield>
+    </datafield>
+    <datafield tag="264" ind1=" " ind2="1">
+      <subfield code="a">Paris :</subfield>
+      <subfield code="b">Éditions de la Mer,</subfield>
+      <subfield code="c">2020-</subfield>
+    </datafield>
+    <datafield tag="336" ind1=" " ind2=" ">
+      <subfield code="a">text</subfield>
+      <subfield code="b">txt</subfield>
+      <subfield code="2">rdacontent</subfield>
+    </datafield>
+    <datafield tag="337" ind1=" " ind2=" ">
+      <subfield code="a">computer</subfield>
+      <subfield code="b">c</subfield>
+      <subfield code="2">rdamedia</subfield>
+    </datafield>
+    <datafield tag="338" ind1=" " ind2=" ">
+      <subfield code="a">online resource</subfield>
+      <subfield code="b">cr</subfield>
+      <subfield code="2">rdacarrier</subfield>
+    </datafield>
+    <datafield tag="710" ind1="2" ind2=" ">
+      <subfield code="a">Société cétologique de France.</subfield>
+      <subfield code="4">isb</subfield>
+    </datafield>
+    <datafield tag="856" ind1="4" ind2="0">
+      <subfield code="u">https://example.org/revue-cetaces</subfield>
+    </datafield>
+  </record>
+</collection>

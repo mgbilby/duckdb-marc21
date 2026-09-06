@@ -5,10 +5,12 @@
 //! read_marc(), plus an optional `leader` VARCHAR column.  Any other columns
 //! (record_no, control_number, ...) are ignored, so
 //!   COPY (SELECT * FROM read_marc('in.mrc')) TO 'out.mrc' (FORMAT marc)
-//! round-trips.  Output is UTF-8 (leader/09 = 'a') with record lengths and
-//! base addresses recomputed by the writer.
+//! round-trips.  Output is UTF-8 NFC (leader/09 = 'a') with record lengths
+//! and base addresses recomputed by the writer; NORMALIZE 'nfd' emits
+//! canonically-decomposed values for legacy Voyager/Aleph-family loaders.
 
 #include "marc21_extension.hpp"
+#include "marc/compat.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/common/file_system.hpp"
@@ -16,6 +18,7 @@
 
 #include "marc/core.hpp"
 #include "marc/formats.hpp"
+#include "marc/unicode_nfc.hpp"
 
 #include <mutex>
 
@@ -27,6 +30,7 @@ enum class MarcOutputFormat { ISO2709, MARCXML, MRK, MARCJSON };
 struct MarcCopyBindData : public TableFunctionData {
 	MarcOutputFormat format = MarcOutputFormat::ISO2709;
 	bool marc8 = false;
+	bool nfd = false;
 	idx_t fields_col = DConstants::INVALID_INDEX;
 	idx_t leader_col = DConstants::INVALID_INDEX;
 	// Child positions inside the field / subfield STRUCTs.
@@ -44,7 +48,7 @@ struct MarcCopyLocalState : public LocalFunctionData {};
 static idx_t StructChild(const LogicalType &type, const string &name) {
 	auto &children = StructType::GetChildTypes(type);
 	for (idx_t i = 0; i < children.size(); i++) {
-		if (StringUtil::CIEquals(children[i].first, name)) {
+		if (StringUtil::CIEquals(MarcName(children[i].first), name)) {
 			return i;
 		}
 	}
@@ -52,14 +56,14 @@ static idx_t StructChild(const LogicalType &type, const string &name) {
 }
 
 static unique_ptr<FunctionData> MarcCopyBindFormat(MarcOutputFormat format, CopyFunctionBindInput &input,
-                                                   const vector<string> &names,
+                                                   MarcCopyNames names,
                                                    const vector<LogicalType> &sql_types) {
 	auto bind = make_uniq<MarcCopyBindData>();
 	bind->format = format;
 	for (idx_t i = 0; i < names.size(); i++) {
-		if (StringUtil::CIEquals(names[i], "fields")) {
+		if (StringUtil::CIEquals(MarcName(names[i]), "fields")) {
 			bind->fields_col = i;
-		} else if (StringUtil::CIEquals(names[i], "leader")) {
+		} else if (StringUtil::CIEquals(MarcName(names[i]), "leader")) {
 			bind->leader_col = i;
 		}
 	}
@@ -87,7 +91,7 @@ static unique_ptr<FunctionData> MarcCopyBindFormat(MarcOutputFormat format, Copy
 	bind->sf_value = StructChild(sf_struct, "value");
 
 	for (auto &kv : input.info.options) {
-		auto name = StringUtil::Lower(kv.first);
+		auto name = StringUtil::Lower(MarcName(kv.first));
 		if (name == "encoding" && format == MarcOutputFormat::ISO2709) {
 			auto v = kv.second.empty() ? "" : StringUtil::Lower(kv.second[0].ToString());
 			if (v == "marc8" || v == "marc-8") {
@@ -95,8 +99,15 @@ static unique_ptr<FunctionData> MarcCopyBindFormat(MarcOutputFormat format, Copy
 			} else if (v != "utf8" && v != "utf-8") {
 				throw BinderException("COPY (FORMAT marc): unsupported encoding \"%s\" (utf8 or marc8)", v);
 			}
+		} else if (name == "normalize") {
+			auto v = kv.second.empty() ? "" : StringUtil::Lower(kv.second[0].ToString());
+			if (v == "nfd") {
+				bind->nfd = true;
+			} else if (v != "nfc") {
+				throw BinderException("COPY (FORMAT marc): unsupported normalize \"%s\" (nfc or nfd)", v);
+			}
 		} else {
-			throw BinderException("COPY (FORMAT marc): unknown option \"%s\"", kv.first);
+			throw BinderException("COPY (FORMAT marc): unknown option \"%s\"", MarcName(kv.first));
 		}
 	}
 	return std::move(bind);
@@ -104,7 +115,7 @@ static unique_ptr<FunctionData> MarcCopyBindFormat(MarcOutputFormat format, Copy
 
 template <MarcOutputFormat FMT>
 static unique_ptr<FunctionData> MarcCopyBind(ClientContext &, CopyFunctionBindInput &input,
-                                             const vector<string> &names, const vector<LogicalType> &sql_types) {
+                                             MarcCopyNames names, const vector<LogicalType> &sql_types) {
 	return MarcCopyBindFormat(FMT, input, names, sql_types);
 }
 
@@ -183,6 +194,20 @@ static marc::Record RowToRecord(const MarcCopyBindData &bind, DataChunk &input, 
 	return rec;
 }
 
+// Decompose every textual value for ILSes that expect NFD records.  The
+// leader, tags, indicators and codes are single-scalar/ASCII and untouched.
+static void NfdRecord(marc::Record &rec) {
+	for (auto &field : rec.fields) {
+		if (field.is_control) {
+			field.control_value = marc::NfdNormalizeUtf8(field.control_value);
+			continue;
+		}
+		for (auto &sf : field.subfields) {
+			sf.value = marc::NfdNormalizeUtf8(sf.value);
+		}
+	}
+}
+
 static void MarcCopySink(ExecutionContext &, FunctionData &bind_data, GlobalFunctionData &gstate, LocalFunctionData &,
                          DataChunk &input) {
 	auto &bind = bind_data.Cast<MarcCopyBindData>();
@@ -190,6 +215,9 @@ static void MarcCopySink(ExecutionContext &, FunctionData &bind_data, GlobalFunc
 	string buffer;
 	for (idx_t row = 0; row < input.size(); row++) {
 		auto rec = RowToRecord(bind, input, row);
+		if (bind.nfd) {
+			NfdRecord(rec);
+		}
 		try {
 			switch (bind.format) {
 			case MarcOutputFormat::ISO2709:

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<record
+    xmlns="http://www.loc.gov/MARC21/slim"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.loc.gov/MARC21/slim http://www.loc.gov/standards/marcxml/schema/MARC21slim.xsd">
+  <leader>00000nam a2200000 a 4500</leader>
+  <controlfield tag="001">70</controlfield>
+  <controlfield tag="003">KOHA-TEST</controlfield>
+  <controlfield tag="005">20230917120500.0</controlfield>
+  <controlfield tag="008">230917s2023    xxk           000 0 eng d</controlfield>
+  <datafield tag="020" ind1=" " ind2=" ">
+    <subfield code="a">9780000000202</subfield>
+  </datafield>
+  <datafield tag="040" ind1=" " ind2=" ">
+    <subfield code="a">KOHA-TEST</subfield>
+    <subfield code="c">KOHA-TEST</subfield>
+  </datafield>
+  <datafield tag="100" ind1="1" ind2=" ">
+    <subfield code="a">Rest, Api,</subfield>
+    <subfield code="e">author.</subfield>
+  </datafield>
+  <datafield tag="245" ind1="1" ind2="0">
+    <subfield code="a">Koha biblio record /</subfield>
+    <subfield code="c">Api Rest.</subfield>
+  </datafield>
+  <datafield tag="942" ind1=" " ind2=" ">
+    <subfield code="c">BK</subfield>
+  </datafield>
+  <datafield tag="999" ind1=" " ind2=" ">
+    <subfield code="c">70</subfield>
+    <subfield code="d">70</subfield>
+  </datafield>
+</record>

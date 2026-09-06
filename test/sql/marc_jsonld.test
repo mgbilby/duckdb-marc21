@@ -1,0 +1,70 @@
+# name: test/sql/marc_jsonld.test
+# description: schema.org JSON-LD export (marc_jsonld)
+# group: [marc]
+
+require marc21
+
+require json
+
+statement ok
+CREATE VIEW book AS SELECT
+    '00000nam a2200000 a 4500' AS leader,
+    [struct_pack(tag := '008', ind1 := NULL::VARCHAR, ind2 := NULL::VARCHAR,
+                 value := '890201s1989    xxu           000 0 eng d',
+                 subfields := NULL::STRUCT(code VARCHAR, value VARCHAR)[]),
+     struct_pack(tag := '020', ind1 := ' ', ind2 := ' ', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := '0-306-40615-2')]),
+     struct_pack(tag := '100', ind1 := '1', ind2 := ' ', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := 'Berger, Melvin,')]),
+     struct_pack(tag := '245', ind1 := '1', ind2 := '4', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := 'The whale watchers'' guide /'),
+                               struct_pack(code := 'c', value := 'by Melvin Berger.')]),
+     struct_pack(tag := '260', ind1 := ' ', ind2 := ' ', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'b', value := 'Pond Press,'),
+                               struct_pack(code := 'c', value := '1989.')]),
+     struct_pack(tag := '650', ind1 := ' ', ind2 := '0', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := 'Whales.'),
+                               struct_pack(code := '0', value := 'http://id.loc.gov/authorities/subjects/sh85146200')]),
+     struct_pack(tag := '856', ind1 := '4', ind2 := '0', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'u', value := 'https://example.org/whales')])
+    ] AS fields;
+
+# @type from the leader; name/author/publisher/date through the Dublin Core
+# crosswalk; isbn normalized to ISBN-13 by marc_isbn13.
+query IIIII
+SELECT j->>'@type', j->>'name', j->'author'->>'name', j->>'datePublished', j->>'isbn'
+FROM (SELECT marc_jsonld(leader, fields) AS j FROM book);
+----
+Book	The whale watchers' guide	Berger, Melvin	1989	9780306406157
+
+# @context, language, subjects, url list, sameAs from $0.
+query IIIII
+SELECT j->>'@context', j->>'inLanguage',
+       j->'about'->>0, j->'url'->>0, j->'sameAs'->>0
+FROM (SELECT marc_jsonld(leader, fields) AS j FROM book);
+----
+https://schema.org	eng	Whales	https://example.org/whales	http://id.loc.gov/authorities/subjects/sh85146200
+
+# Merge-patch semantics: keys with no source data are absent, not null.
+query III
+SELECT json_exists(j, '$.issn'), json_exists(j, '$.description'), json_exists(j, '$.contributor')
+FROM (SELECT marc_jsonld(leader, fields) AS j FROM book);
+----
+false	false	false
+
+# A serial types as Periodical and carries its ISSN.
+query III
+SELECT j->>'@type', j->>'issn', json_exists(j, '$.isbn')
+FROM (SELECT marc_jsonld('00000nas a2200000 a 4500',
+        [struct_pack(tag := '245', ind1 := '0', ind2 := '0', value := NULL::VARCHAR,
+                     subfields := [struct_pack(code := 'a', value := 'Journal of Ducks')]),
+         struct_pack(tag := '022', ind1 := ' ', ind2 := ' ', value := NULL::VARCHAR,
+                     subfields := [struct_pack(code := 'a', value := '2049-3630')])]) AS j);
+----
+Periodical	2049-3630	false
+
+# NDJSON-style export: one JSON-LD object per record line.
+query I
+SELECT marc_jsonld(leader, fields) IS NOT NULL FROM book;
+----
+true

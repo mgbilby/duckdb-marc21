@@ -1,0 +1,189 @@
+# name: test/sql/marc_xslt.test
+# description: the embedded XSLT crosswalk registry — catalog, stylesheet text, export round trip
+# group: [marc]
+
+require marc21
+
+# ---------------------------------------------------------------------------
+# The catalog is xslt/registry.tsv, embedded at build time.
+# ---------------------------------------------------------------------------
+
+# One catalog row per registry row.
+query I
+SELECT (SELECT count(*) FROM marc_xslt_functions())
+     = (SELECT count(*) FROM read_csv('xslt/registry.tsv', delim := e'\t', header := true,
+                                      quote := '', escape := '', all_varchar := true));
+----
+true
+
+# ...and the same rows, column for column, in both directions.
+query I
+SELECT count(*) FROM (
+    ((SELECT alias, path, source_format, target_format, description FROM marc_xslt_functions())
+     EXCEPT
+     (SELECT * FROM read_csv('xslt/registry.tsv', delim := e'\t', header := true,
+                             quote := '', escape := '', all_varchar := true)))
+    UNION ALL
+    ((SELECT * FROM read_csv('xslt/registry.tsv', delim := e'\t', header := true,
+                             quote := '', escape := '', all_varchar := true))
+     EXCEPT
+     (SELECT alias, path, source_format, target_format, description FROM marc_xslt_functions()))
+);
+----
+0
+
+# The shared helper library is not a transform and has no catalog row.
+query I
+SELECT count(*) FROM marc_xslt_functions() WHERE path LIKE '%marc-utils%';
+----
+0
+
+# Every stylesheet in the tree is registered — the helper library aside — so a
+# new crosswalk cannot ship uncatalogued.  glob() returns the platform's own
+# separator, so the paths are normalised before they meet the registry's,
+# which are always forward slashes; without that every row differs on Windows
+# and the check reports the whole directory as unregistered.
+query I
+SELECT count(*) FROM (
+    (SELECT replace(file, chr(92), '/') AS path FROM glob('xslt/*.xsl'))
+    EXCEPT
+    (SELECT path FROM marc_xslt_functions())
+) WHERE path <> 'xslt/marc-utils.xsl';
+----
+0
+
+# Formats stay inside the registry's vocabulary.
+query I
+SELECT count(*) FROM marc_xslt_functions()
+WHERE source_format NOT IN ('MARC', 'MARC-AUTHORITY', 'MODS', 'OAI_DC', 'DCTERMS', 'RDF-DC',
+                            'EAD3', 'HTML', 'JSON-LD', 'RIS', 'UNIMARC', 'ONIX3', 'EDM',
+                            'MADS', 'BIBFRAME2', 'RUSMARC', 'KORMARC', 'INTERMARC',
+                            'JAPANMARC', 'IBERMARC', 'MAB2')
+   OR target_format NOT IN ('MARC', 'MARC-AUTHORITY', 'MODS', 'OAI_DC', 'DCTERMS', 'RDF-DC',
+                            'EAD3', 'HTML', 'JSON-LD', 'RIS', 'UNIMARC', 'ONIX3', 'EDM',
+                            'MADS', 'BIBFRAME2', 'RUSMARC', 'KORMARC', 'INTERMARC',
+                            'JAPANMARC', 'IBERMARC', 'MAB2');
+----
+0
+
+# Authority input and its MADS target are spelled out in the catalog.
+query IIII
+SELECT alias, path, source_format, target_format
+FROM marc_xslt_functions() WHERE alias = 'MARC=>MADS';
+----
+MARC=>MADS	xslt/marcxml-to-mads.xsl	MARC-AUTHORITY	MADS
+
+# Both UNIMARC directions and both BIBFRAME directions are registered.
+query I
+SELECT count(*) FROM marc_xslt_functions()
+WHERE alias IN ('MARC=>UNIMARC', 'MARC=>UNIMARC-SKELETON', 'UNIMARC=>MARC',
+                'MARC=>BIBFRAME2', 'BIBFRAME2=>MARC');
+----
+5
+
+# ---------------------------------------------------------------------------
+# Stylesheet text
+# ---------------------------------------------------------------------------
+
+# Every registered alias resolves to a stylesheet document.
+query I
+SELECT count(*) FROM marc_xslt_functions()
+WHERE marc_xslt_stylesheet(alias) IS NULL
+   OR NOT (marc_xslt_stylesheet(alias) LIKE '<?xml%' OR marc_xslt_stylesheet(alias) LIKE '<xsl:%');
+----
+0
+
+# Every registered path resolves to the same text as its alias.
+query I
+SELECT count(*) FROM marc_xslt_functions()
+WHERE marc_xslt_stylesheet(path) IS DISTINCT FROM marc_xslt_stylesheet(alias);
+----
+0
+
+# Aliases are matched case-insensitively.
+query I
+SELECT marc_xslt_stylesheet('marc=>mods') = marc_xslt_stylesheet('MARC=>MODS');
+----
+true
+
+# An unknown key is NULL, not an error and not an empty string.
+query II
+SELECT marc_xslt_stylesheet('NOT=>A=>CROSSWALK') IS NULL,
+       marc_xslt_stylesheet('xslt/does-not-exist.xsl') IS NULL;
+----
+true	true
+
+# The helper library comes out whole.
+query III
+SELECT length(marc_xslt_library()) > 0,
+       marc_xslt_library() LIKE '<?xml%',
+       marc_xslt_library() LIKE '%mu-field-text%';
+----
+true	true	true
+
+# ---------------------------------------------------------------------------
+# Export round trip: a stylesheet is newlines and quotes, so the CSV writer
+# must neither quote nor escape it.  rtrim of the file's own final newline
+# leaves the row terminator to put exactly one back.
+# ---------------------------------------------------------------------------
+
+statement ok
+COPY (SELECT rtrim(marc_xslt_stylesheet('MARC=>MODS'), chr(10)))
+TO '__TEST_DIR__/marcxml-to-mods.xsl' (FORMAT csv, HEADER false, QUOTE '', ESCAPE '');
+
+query I
+SELECT content = marc_xslt_stylesheet('MARC=>MODS')
+FROM read_text('__TEST_DIR__/marcxml-to-mods.xsl');
+----
+true
+
+statement ok
+COPY (SELECT rtrim(marc_xslt_library(), chr(10)))
+TO '__TEST_DIR__/marc-utils.xsl' (FORMAT csv, HEADER false, QUOTE '', ESCAPE '');
+
+query I
+SELECT content = marc_xslt_library() FROM read_text('__TEST_DIR__/marc-utils.xsl');
+----
+true
+
+# The largest sheet survives the same trip (it is embedded as several
+# adjacent string literals).
+statement ok
+COPY (SELECT rtrim(marc_xslt_stylesheet('UNIMARC=>MARC'), chr(10)))
+TO '__TEST_DIR__/unimarc-to-marc21.xsl' (FORMAT csv, HEADER false, QUOTE '', ESCAPE '');
+
+query II
+SELECT content = marc_xslt_stylesheet('UNIMARC=>MARC'), length(content) > 40000
+FROM read_text('__TEST_DIR__/unimarc-to-marc21.xsl');
+----
+true	true
+
+# ---------------------------------------------------------------------------
+# The xsltproc command line
+# ---------------------------------------------------------------------------
+
+query I
+SELECT marc_xslt_command('MARC=>MODS', 'records.xml', 'records.mods.xml');
+----
+xsltproc --output 'records.mods.xml' 'marcxml-to-mods.xsl' 'records.xml'
+
+# The sheet is named by its bare filename: it runs beside the exported
+# lib/marc-utils.xsl it includes.
+query II
+SELECT marc_xslt_sheet_file('MARC=>EAD3'), marc_xslt_command('marc=>ead3', 'in.xml', 'out.xml');
+----
+marcxml-to-ead.xsl	xsltproc --output 'out.xml' 'marcxml-to-ead.xsl' 'in.xml'
+
+# Paths are single-quoted for the shell; an embedded quote is escaped.
+query I
+SELECT marc_xslt_command('MARC=>RIS', 'my books/o''brien.xml', 'out.ris');
+----
+xsltproc --output 'out.ris' 'marcxml-to-ris.xsl' 'my books/o'\''brien.xml'
+
+# Every registered crosswalk has a command; an unknown alias has none.
+query II
+SELECT (SELECT count(*) FROM marc_xslt_functions()
+        WHERE marc_xslt_command(alias, 'in.xml', 'out.xml') IS NULL),
+       marc_xslt_command('NOT=>A=>CROSSWALK', 'in.xml', 'out.xml') IS NULL;
+----
+0	true

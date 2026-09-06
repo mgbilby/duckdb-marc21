@@ -504,7 +504,7 @@ static void TestMarc8Encoder() {
 	                      "\xc3\x86r\xc3\xb8", "Na\xc3\xafve art", "caf\xc3\xa9"}) {
 		CHECK_EQ(Marc8Decode(EncodeMarc8(s)), std::string(s));
 	}
-	// Non-Latin scripts get native G0 escape designations (ESC ( F single
+	// Non-Latin scripts get their own G0 escape designations (ESC ( F single
 	// byte, ESC $ 1 for EACC, ASCII restored with ESC ( B); round trips
 	// exactly, matching unicode_to_marc8 byte-for-byte.
 	CHECK_EQ(EncodeMarc8("\xe6\x97\xa5\xe6\x9c\xac"), std::string("\x1b\x24\x31\x21\x42\x73\x21\x43\x69\x1b\x28\x42", 12));

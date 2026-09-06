@@ -1,0 +1,134 @@
+# name: test/sql/marc_international.test
+# description: ISBD display rendering and UNIMARC record label conversion
+# group: [marc]
+
+require marc21
+
+# A rich record renders with the full prescribed punctuation: title area
+# ($a : $b / $c), edition, publication (place : publisher, date), physical
+# description (extent : details ; dimensions), series in parentheses, ISBN;
+# areas joined with point-space-em dash-space.  Source ISBD punctuation on
+# the subfield values is stripped before the prescribed marks re-apply.
+statement ok
+CREATE VIEW rich AS SELECT
+    '00000nam a2200000 a 4500' AS leader,
+    [struct_pack(tag := '020', ind1 := ' ', ind2 := ' ', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := '0-306-40615-2')]),
+     struct_pack(tag := '245', ind1 := '1', ind2 := '4', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := 'Les canards du Saint-Laurent :'),
+                               struct_pack(code := 'b', value := 'guide d''observation /'),
+                               struct_pack(code := 'c', value := 'Amélie Côté.')]),
+     struct_pack(tag := '250', ind1 := ' ', ind2 := ' ', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := '2e édition.')]),
+     struct_pack(tag := '264', ind1 := ' ', ind2 := '1', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := 'Montréal :'),
+                               struct_pack(code := 'b', value := 'Éditions du Lac,'),
+                               struct_pack(code := 'c', value := '2021.')]),
+     struct_pack(tag := '300', ind1 := ' ', ind2 := ' ', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := '214 pages :'),
+                               struct_pack(code := 'b', value := 'illustrations ;'),
+                               struct_pack(code := 'c', value := '23 cm.')]),
+     struct_pack(tag := '490', ind1 := '0', ind2 := ' ', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := 'Faune du Québec ;'),
+                               struct_pack(code := 'v', value := '7')])
+    ] AS fields;
+
+query I
+SELECT marc_isbd(leader, fields) FROM rich;
+----
+Les canards du Saint-Laurent : guide d'observation / Amélie Côté. — 2e édition. — Montréal : Éditions du Lac, 2021. — 214 pages : illustrations ; 23 cm. — (Faune du Québec ; 7). — ISBN 0-306-40615-2
+
+# Graceful degradation: a title-only record is just the title, no stray
+# punctuation.
+query I
+SELECT marc_isbd('00000nam a2200000 a 4500',
+    [struct_pack(tag := '245', ind1 := '0', ind2 := '0', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := 'Notes')])]);
+----
+Notes
+
+# No title at all: the surviving areas still assemble correctly
+# (publisher, date - no leading separator).
+query I
+SELECT marc_isbd('00000nam a2200000 a 4500',
+    [struct_pack(tag := '260', ind1 := ' ', ind2 := ' ', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'b', value := 'Pond Press,'),
+                               struct_pack(code := 'c', value := '1989.')])]);
+----
+Pond Press, 1989
+
+# An empty record yields NULL, not an empty string.
+query I
+SELECT marc_isbd('00000nam a2200000 a 4500',
+    []::STRUCT(tag VARCHAR, ind1 VARCHAR, ind2 VARCHAR, value VARCHAR,
+               subfields STRUCT(code VARCHAR, value VARCHAR)[])[]) IS NULL;
+----
+true
+
+# Continuing resources carry ISSN (Leader/07 = s), not ISBN, in area 8.
+query I
+SELECT marc_isbd('00000nas a2200000 a 4500',
+    [struct_pack(tag := '245', ind1 := '0', ind2 := '0', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := 'Journal of Ducks')]),
+     struct_pack(tag := '022', ind1 := ' ', ind2 := ' ', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := '2049-3630')])]);
+----
+Journal of Ducks. — ISSN 2049-3630
+
+# ---------------------------------------------------------------------------
+# Record label conversion.  MARC 21 leader -> UNIMARC record label: length
+# and base address digits survive, /8 becomes hierarchical level 0, /9
+# blank (undefined), /17-18 remapped, entry map becomes '450 '.
+query II
+SELECT marc_unimarc_label('01234nam a2200481 a 4500'),
+       length(marc_unimarc_label('01234nam a2200481 a 4500'));
+----
+01234nam0 2200481   450 	24
+
+# Type of record remaps where the codes differ: MARC t (manuscript
+# language) -> UNIMARC b, m (electronic) -> l, o (kit) -> m.
+query III
+SELECT substr(marc_unimarc_label('00000ntm a2200000 a 4500'), 7, 1),
+       substr(marc_unimarc_label('00000nmm a2200000 a 4500'), 7, 1),
+       substr(marc_unimarc_label('00000nom a2200000 a 4500'), 7, 1);
+----
+b	l	m
+
+# ...and back: UNIMARC b -> t, l -> m, m -> o.
+query III
+SELECT substr(marc_from_unimarc_label('00000nbm0 2200000   450 '), 7, 1),
+       substr(marc_from_unimarc_label('00000nlm0 2200000   450 '), 7, 1),
+       substr(marc_from_unimarc_label('00000nmm0 2200000   450 '), 7, 1);
+----
+t	m	o
+
+# The reverse conversion of the committed UNIMARC fixture's label yields a
+# plausible MARC 21 leader: /9 = a (UCS), /18 = i (ISBD), map 4500.
+query I
+SELECT marc_from_unimarc_label('00256nam0 2200097   450 ');
+----
+00256nam a2200097 i 4500
+
+# Round trip: for a plain book leader the type, level, status and encoding
+# survive both conversions (position 18 lands on 'i' - both AACR2 'a' and
+# ISBD 'i' mean full ISBD in UNIMARC, which converts back as 'i').
+query I
+SELECT marc_from_unimarc_label(marc_unimarc_label('00000cam a2200000 i 4500'));
+----
+00000cam a2200000 i 4500
+
+# CIP encoding level 8 <-> UNIMARC sublevel 1.
+query II
+SELECT substr(marc_unimarc_label('00000nam a22000008a 4500'), 18, 1),
+       substr(marc_from_unimarc_label('00000nam0 22000001  450 '), 18, 1);
+----
+1	8
+
+# The label converters pair with the structural UNIMARC reader: a UNIMARC
+# file read with read_marc keeps its label verbatim, and the converter
+# turns it into a MARC 21 leader (see docs/UNIMARC.md for the fixture).
+query I
+SELECT marc_from_unimarc_label(leader) = '00256nam a2200097 i 4500'
+FROM read_marc('test/data/unimarc.mrc', encoding := 'utf8');
+----
+true

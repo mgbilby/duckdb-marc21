@@ -28,12 +28,16 @@ struct RecordRank {
 RecordRank RankRecord(const Record &rec);
 
 // Skeleton record for a material type: "book", "serial", "video", "map",
-// "music" (a notated-music score) or "electronic".  Sets Leader/06-07 for
-// the material, an all-materials-layout 008 (dates unknown, place "xx ",
-// language uncoded — layout documented in catalog.cpp) and an empty 245
-// with blank indicators and an empty $a, so the result round-trips through
-// WriteRecord/ParseRecord before the caller fills it in.  An unknown name
-// throws MarcError listing the valid ones.
+// "music" (a notated-music score), "electronic" or "authority".  The
+// bibliographic materials set Leader/06-07 for the material, an
+// all-materials-layout 008 (dates unknown, place "xx ", language uncoded —
+// layout documented in catalog.cpp) and an empty 245 with blank indicators
+// and an empty $a; "authority" sets Leader/06 'z' with the authority-format
+// 008 layout (kind-of-record 'a', level of establishment 'd' preliminary —
+// full layout at NewAuthorityRecord in catalog.cpp) and an empty 100 $a
+// placeholder heading instead of the 245.  Every skeleton round-trips
+// through WriteRecord/ParseRecord before the caller fills it in.  An
+// unknown name throws MarcError listing the valid ones.
 Record NewRecord(std::string_view material);
 
 // Expand the classic AACR2 physical-description abbreviations to their RDA
@@ -47,10 +51,15 @@ Record RdaExpandAbbreviations(const Record &rec);
 
 // Add the RDA content/media/carrier fields the record lacks — 336/337/338
 // with blank indicators, $a term, $b code, $2 rdacontent/rdamedia/
-// rdacarrier — derived from Leader/06, the first 007/00-01, and 008/26 for
-// computer files (mapping table at the top of catalog.cpp).  A tag already
-// present is left untouched, and a slot the mapping cannot determine is
-// skipped rather than guessed.  New fields are inserted in tag order.
+// rdacarrier — derived from Leader/06, the first 007/00-01, 008/26 for
+// computer files, and the 006 fields when the leader alone is ambiguous
+// (mapping tables at the top of catalog.cpp).  006/00 supplies the content
+// term when Leader/06 maps to nothing; 007/00 'f' (tactile) and 'g'
+// (projected graphic) refine text and moving-image leaders to tactile
+// text and still image; 007/01 picks the specific carrier (videocassette
+// vs videodisc, audiocassette vs audio disc, ...).  A tag already present
+// is left untouched, and a slot the mapping cannot determine is skipped
+// rather than guessed.  New fields are inserted in tag order.
 Record Generate33X(const Record &rec);
 
 } // namespace marc

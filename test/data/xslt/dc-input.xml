@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Simple Dublin Core input fixture for oai_dc-to-marcxml.xsl: two
+     oai_dc:dc containers in the neutral dcRecords wrapper, exercising
+     identifier discrimination, multiple titles/creators, languages,
+     and the DCMI type vocabulary. -->
+<dcRecords>
+  <oai_dc:dc
+      xmlns:oai_dc="http://www.openarchives.org/OAI/2.0/oai_dc/"
+      xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>Grænselandets fortællinger</dc:title>
+    <dc:title>Tales of the borderland</dc:title>
+    <dc:creator>Østergaard, Pia</dc:creator>
+    <dc:creator>Aagaard, Niels</dc:creator>
+    <dc:contributor>Schmidt, Lene</dc:contributor>
+    <dc:subject>Border regions</dc:subject>
+    <dc:subject>Danish literature</dc:subject>
+    <dc:description>Essays on the Danish-German borderland.</dc:description>
+    <dc:publisher>Grænseforlaget</dc:publisher>
+    <dc:date>2019</dc:date>
+    <dc:type>Text</dc:type>
+    <dc:format>312 pages</dc:format>
+    <dc:identifier>978-0-19-852663-6</dc:identifier>
+    <dc:identifier>2049-3630</dc:identifier>
+    <dc:identifier>https://example.org/graenseland</dc:identifier>
+    <dc:identifier>local-ctrl-0042</dc:identifier>
+    <dc:language>dan</dc:language>
+    <dc:language>ger</dc:language>
+    <dc:rights>Free for research use.</dc:rights>
+  </oai_dc:dc>
+  <oai_dc:dc
+      xmlns:oai_dc="http://www.openarchives.org/OAI/2.0/oai_dc/"
+      xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>Field recordings of the western fjords</dc:title>
+    <dc:type>Sound</dc:type>
+    <dc:type>Collection</dc:type>
+    <dc:date>Recorded c1978.</dc:date>
+    <dc:identifier>urn:ISBN:0198526636</dc:identifier>
+    <dc:language>Norwegian</dc:language>
+  </oai_dc:dc>
+</dcRecords>

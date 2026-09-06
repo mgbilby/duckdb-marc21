@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Hand-built INTERMARC (BnF) bibliographic record in the MARC 21 slim XML
+     container - the shape COPY (FORMAT marcxml) produces for an INTERMARC
+     file read with read_marc(..., encoding := 'utf8').  It exercises the
+     subset the crosswalk covers: record label, 001, 020 ISBN, 100 and 700
+     personal-author main and added headings with BnF function codes in $4,
+     145 conventional title, 245 title in the French-family subfield shape,
+     260 bibliographic address, 280 physical description, 300/302/310
+     notes, and RAMEAU subject headings in 600/606/607.  French diacritics
+     throughout. -->
+<record xmlns="http://www.loc.gov/MARC21/slim">
+  <leader>00000nam0 22000000  450 </leader>
+  <controlfield tag="001">FRBNF43512345</controlfield>
+  <controlfield tag="005">20240501140000.0</controlfield>
+  <datafield tag="020" ind1=" " ind2=" ">
+    <subfield code="a">978-2-07-046987-1</subfield>
+    <subfield code="z">978-2-07-046987-2</subfield>
+  </datafield>
+  <datafield tag="100" ind1=" " ind2=" ">
+    <subfield code="a">Rimbaud, Arthur</subfield>
+    <subfield code="f">1854-1891</subfield>
+    <subfield code="4">0070</subfield>
+  </datafield>
+  <datafield tag="145" ind1=" " ind2=" ">
+    <subfield code="a">Une saison en enfer</subfield>
+  </datafield>
+  <datafield tag="245" ind1="1" ind2=" ">
+    <subfield code="a">Une saison en enfer</subfield>
+    <subfield code="e">suivi des Illuminations</subfield>
+    <subfield code="f">Arthur Rimbaud ; édition présentée par Hélène Dubois</subfield>
+  </datafield>
+  <datafield tag="260" ind1=" " ind2=" ">
+    <subfield code="a">Paris</subfield>
+    <subfield code="c">Gallimard</subfield>
+    <subfield code="d">2023</subfield>
+  </datafield>
+  <datafield tag="280" ind1=" " ind2=" ">
+    <subfield code="a">1 vol. (172 p.)</subfield>
+    <subfield code="b">couv. ill. en coul.</subfield>
+    <subfield code="c">18 cm</subfield>
+  </datafield>
+  <datafield tag="300" ind1=" " ind2=" ">
+    <subfield code="a">Notice rédigée d'après l'exemplaire du dépôt légal</subfield>
+  </datafield>
+  <datafield tag="302" ind1=" " ind2=" ">
+    <subfield code="a">Texte en français, préface en français et en anglais</subfield>
+  </datafield>
+  <datafield tag="310" ind1=" " ind2=" ">
+    <subfield code="a">Communicable en salle de lecture</subfield>
+  </datafield>
+  <datafield tag="600" ind1=" " ind2=" ">
+    <subfield code="a">Rimbaud, Arthur</subfield>
+    <subfield code="f">1854-1891</subfield>
+    <subfield code="x">Critique et interprétation</subfield>
+  </datafield>
+  <datafield tag="606" ind1=" " ind2=" ">
+    <subfield code="a">Poésie française</subfield>
+    <subfield code="y">19e siècle</subfield>
+  </datafield>
+  <datafield tag="607" ind1=" " ind2=" ">
+    <subfield code="a">Ardennes (France)</subfield>
+  </datafield>
+  <datafield tag="700" ind1=" " ind2=" ">
+    <subfield code="a">Dubois, Hélène</subfield>
+    <subfield code="4">0340</subfield>
+  </datafield>
+  <datafield tag="710" ind1=" " ind2=" ">
+    <subfield code="a">Bibliothèque nationale de France</subfield>
+    <subfield code="4">0205</subfield>
+  </datafield>
+</record>

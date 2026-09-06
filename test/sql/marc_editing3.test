@@ -1,0 +1,185 @@
+# name: test/sql/marc_editing3.test
+# description: swap/sort/rename-subfield/replace-all editing scalars and the delimited preset macros
+# group: [marc]
+
+require marc21
+
+statement ok
+SET VARIABLE utf8 = 'test/data/sample_utf8.mrc';
+
+# ============================================================================
+# PART 1 — C++ scalars (marc_edit_scalars.cpp).  Semantics are pinned
+# standalone by test/cpp/edit_test.cpp; this file exercises the SQL surface.
+# ============================================================================
+
+# marc_swap_fields: exchange the tags of two field sets in place.  Build a
+# 440/490 pair, swap, and check both directions travelled — values AND
+# indicators stay with their fields.
+statement ok
+CREATE VIEW swapped AS
+SELECT marc_swap_fields(
+           marc_add_local(marc_add_local(fields, '440', ' ', '0',
+                                         ['a'], ['Old series ;']),
+                          '490', '1', ' ', ['a'], ['New series ;']),
+           '440', '490') AS f
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+
+query IIII
+SELECT marc_subfield(f, '440', 'a'), marc_subfield(f, '490', 'a'),
+       marc_fields(f, '440')[1].ind1, marc_fields(f, '490')[1].ind2
+FROM swapped;
+----
+New series ;	Old series ;	1	0
+
+# One side absent = plain retag; both absent = no-op.
+query II
+SELECT marc_subfield(marc_swap_fields(fields, '100', '700'), '700', 'a'),
+       marc_swap_fields(fields, '946', '947') = fields
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+Müller, Anna,	true
+
+# Swapping across the control/data boundary is refused, as are wildcards.
+statement error
+SELECT marc_swap_fields(fields, '001', '650')
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+control/data
+
+statement error
+SELECT marc_swap_fields(fields, '6..', '651')
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+wildcards
+
+# marc_sort_fields: stable tag sort of the whole list — the deliberately
+# out-of-order edge fixture comes back in tag order.
+query I
+SELECT list_transform(marc_sort_fields(fields), lambda f: f.tag)
+FROM read_marc('test/data/edge/odd_fields.mrc');
+----
+[001, 100, 245, 500, 650]
+
+# An already-ordered record is unchanged (stability: the three 650s keep
+# their occurrence order).
+query I
+SELECT marc_sort_fields(fields) = fields
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+true
+
+# marc_rename_subfield: every 650 $z becomes $x, values and order kept;
+# control fields and other codes untouched.
+query II
+SELECT marc_subfields(marc_rename_subfield(fields, '650', 'z', 'x'), '650', 'x'),
+       marc_subfields(marc_rename_subfield(fields, '650', 'z', 'x'), '650', 'z')
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+[Poland, Łódź., Poland.]	[]
+
+statement error
+SELECT marc_rename_subfield(fields, '650', 'zz', 'x')
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+one Unicode scalar
+
+# marc_replace_all: a whole rules table in one call, applied in order (the
+# second rule sees the first one's output: Poland -> Polska -> Polska!).
+query II
+SELECT marc_subfields(r, '650', 'z'), marc_subfield(r, '650', 'a')
+FROM (SELECT marc_replace_all(fields, [
+          {tag: '650', code: 'z', find: '^Poland$', replace: 'Polska'},
+          {tag: '650', code: 'z', find: '^Polska$', replace: 'Polska!'},
+          {tag: '650', code: 'a', find: '^Rivers$', replace: 'Streams'}
+      ]) AS r
+      FROM read_marc(getvariable('utf8')) WHERE record_no = 1);
+----
+[Polska!, Łódź., Poland.]	Streams
+
+# The external-list workflow: rules come from a CSV, aggregated to the list
+# argument (MarcEdit's "Replace All ... from a file").
+statement ok
+COPY (SELECT * FROM (VALUES ('650', 'z', '^Poland$', 'Polska'))
+      AS t(tag, code, find, replace))
+TO '__TEST_DIR__/rules.csv' (FORMAT csv, HEADER true);
+
+query I
+SELECT marc_subfields(marc_replace_all(fields,
+           (SELECT list(struct_pack(tag := tag, code := code,
+                                    find := find, replace := replace))
+            FROM read_csv('__TEST_DIR__/rules.csv', all_varchar := true))),
+       '650', 'z')
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+[Polska, Łódź., Poland.]
+
+# An empty or NULL rules list is the identity; errors name the failing rule.
+query I
+SELECT marc_replace_all(fields, []) = fields
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+true
+
+statement error
+SELECT marc_replace_all(fields, [
+    {tag: '650', code: NULL, find: 'ok', replace: 'ok'},
+    {tag: '650', code: NULL, find: '(unclosed', replace: 'x'}])
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+rule 2
+
+# ============================================================================
+# PART 2 — delimited preset macros (src/macros/delimited.sql).  The macro SQL
+# was validated pre-merge against DuckDB with stand-in scalars; end to end it
+# needs the real marc_new_record / marc_kbart_856, so it lives here.
+# ============================================================================
+
+# Books preset: full columns.  245 ind1 is 1 (author present); publisher and
+# year merge into one 264 _1.
+query IIII
+SELECT list_transform(r.fields, lambda f: f.tag),
+       marc_fields(r.fields, '245')[1].ind1,
+       marc_subfield(r.fields, '264', 'b'), marc_subfield(r.fields, '264', 'c')
+FROM (SELECT marc_from_delimited('book',
+          marc_delimited_preset_books('A title /', 'An author.', '0716717972',
+                                      'Foo Press,', '2002.')) AS r);
+----
+[008, 020, 100, 245, 264]	1	Foo Press,	2002.
+
+# Blank/NULL columns drop their fields, and 245 ind1 falls back to 0.
+query II
+SELECT list_transform(r.fields, lambda f: f.tag),
+       marc_fields(r.fields, '245')[1].ind1
+FROM (SELECT marc_from_delimited('book',
+          marc_delimited_preset_books('No author here', NULL, '', 'P', NULL)) AS r);
+----
+[008, 245, 264]	0
+
+# Serials preset with the 'serial' skeleton.
+query II
+SELECT list_transform(r.fields, lambda f: f.tag), marc_bib_level(r.leader)
+FROM (SELECT marc_from_delimited('serial',
+          marc_delimited_preset_serials('J. of Tests', '1234-5678', 'Bar')) AS r);
+----
+[008, 022, 245, 264]	s
+
+# E-resources preset: the URL rides in the mapping as an 856 40 $u.
+query II
+SELECT list_transform(r.fields, lambda f: f.tag),
+       marc_subfield(r.fields, '856', 'u')
+FROM (SELECT marc_from_delimited('electronic',
+          marc_delimited_preset_eresources('Online thing',
+                                           'https://example.org/x', NULL)) AS r);
+----
+[008, 245, 856]	https://example.org/x
+
+# Presets compose like hand-written mappings: append entries with ||, and
+# marc_from_delimited_url still adds its marc_kbart_856 856 at the end.
+query I
+SELECT list_transform(r.fields, lambda f: f.tag)
+FROM (SELECT marc_from_delimited_url('electronic',
+          marc_delimited_preset_serials('S', NULL, NULL)
+              || [{tag: '650', i1: ' ', i2: '0', code: 'a', value: 'Ducks'}],
+          'https://example.org/y', 'Full text') AS r);
+----
+[008, 245, 650, 856]

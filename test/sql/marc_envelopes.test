@@ -25,3 +25,19 @@ query I
 SELECT count(DISTINCT record_no) FROM read_marcxml('test/data/sample_oai.xml');
 ----
 2
+
+# FOLIO SRS collection envelope: {"sourceRecords": [...], "totalRecords": N}
+# unwraps to one row per record through the parsedRecord.content chain.
+query II
+SELECT control_number, value
+FROM read_marcjson('test/data/sample_folio_collection.json')
+WHERE tag = '245' ORDER BY record_no;
+----
+folio-1	FOLIO record one
+folio-2	FOLIO record two
+
+query I
+SELECT count(DISTINCT record_no)
+FROM read_marcjson('test/data/sample_folio_collection.json');
+----
+2

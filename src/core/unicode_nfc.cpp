@@ -1,4 +1,5 @@
 #include "marc/core.hpp"
+#include "marc/unicode_nfc.hpp"
 #include "marc/unicode_tables.hpp"
 
 #include <algorithm>
@@ -122,16 +123,8 @@ static bool HangulCompose(char32_t a, char32_t b, char32_t &out) {
 	return false;
 }
 
-std::u32string NfcNormalize(std::u32string input) {
-	// Canonical decomposition first: MARC-8 tables map to precomposed
-	// characters, which must decompose before reordering can interleave
-	// them correctly with marks decoded from separate bytes.
-	std::u32string s;
-	s.reserve(input.size());
-	for (char32_t cp : input) {
-		Decompose(cp, s);
-	}
-	// Canonical ordering: stable-sort each run of non-starters by ccc.
+// Canonical ordering: stable-sort each run of non-starters by ccc.
+static void CanonicalOrder(std::u32string &s) {
 	size_t n = s.size();
 	for (size_t i = 1; i < n; i++) {
 		uint8_t cc = Ccc(s[i]);
@@ -144,6 +137,27 @@ std::u32string NfcNormalize(std::u32string input) {
 			j--;
 		}
 	}
+}
+
+// NFD is the first two NFC steps with no recomposition: full canonical
+// decomposition (table sequences are pre-expanded, Hangul is algorithmic)
+// followed by canonical ordering.
+std::u32string NfdNormalize(std::u32string input) {
+	std::u32string s;
+	s.reserve(input.size());
+	for (char32_t cp : input) {
+		Decompose(cp, s);
+	}
+	CanonicalOrder(s);
+	return s;
+}
+
+std::u32string NfcNormalize(std::u32string input) {
+	// Canonical decomposition first: MARC-8 tables map to precomposed
+	// characters, which must decompose before reordering can interleave
+	// them correctly with marks decoded from separate bytes.
+	std::u32string s = NfdNormalize(std::move(input));
+	size_t n = s.size();
 	// Canonical composition (UAX #15 algorithm).
 	std::u32string out;
 	out.reserve(n);

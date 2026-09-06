@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Hand-built UNIMARC bibliographic record carried in the MARC 21 slim
+     XML container (the shape COPY (FORMAT marcxml) produces for a UNIMARC
+     file read with read_marc): UNIMARC record label, 010 ISBN, 100 general
+     processing data (char set 50 = UCS), 101/102, 2XX description block,
+     225 series, 3XX notes, 454 translation link, 6XX subjects (rameau),
+     675/676/680 classifications, 70X/71X responsibility, 801, 856. -->
+<record xmlns="http://www.loc.gov/MARC21/slim">
+  <leader>00000nam0 2200000   450 </leader>
+  <controlfield tag="001">UNIX0001</controlfield>
+  <controlfield tag="005">20240101120000.0</controlfield>
+  <datafield tag="010" ind1=" " ind2=" ">
+    <subfield code="a">2-07-036822-X</subfield>
+    <subfield code="d">9,90 EUR</subfield>
+  </datafield>
+  <datafield tag="100" ind1=" " ind2=" ">
+    <subfield code="a">20240101d2020       y0frey50      ba</subfield>
+  </datafield>
+  <datafield tag="101" ind1="1" ind2=" ">
+    <subfield code="a">fre</subfield>
+    <subfield code="c">eng</subfield>
+  </datafield>
+  <datafield tag="102" ind1=" " ind2=" ">
+    <subfield code="a">FR</subfield>
+  </datafield>
+  <datafield tag="200" ind1="1" ind2=" ">
+    <subfield code="a">Les oiseaux de Loire</subfield>
+    <subfield code="e">guide illustré</subfield>
+    <subfield code="f">Jean Aubry</subfield>
+    <subfield code="g">traduit par Marie Petit</subfield>
+  </datafield>
+  <datafield tag="205" ind1=" " ind2=" ">
+    <subfield code="a">3e édition</subfield>
+  </datafield>
+  <datafield tag="210" ind1=" " ind2=" ">
+    <subfield code="a">Paris</subfield>
+    <subfield code="c">Éditions Fluviales</subfield>
+    <subfield code="d">2020</subfield>
+  </datafield>
+  <datafield tag="215" ind1=" " ind2=" ">
+    <subfield code="a">180 p.</subfield>
+    <subfield code="c">ill. en coul.</subfield>
+    <subfield code="d">21 cm</subfield>
+  </datafield>
+  <datafield tag="225" ind1="2" ind2=" ">
+    <subfield code="a">Nature en France</subfield>
+    <subfield code="v">12</subfield>
+  </datafield>
+  <datafield tag="300" ind1=" " ind2=" ">
+    <subfield code="a">Index p. 175-180</subfield>
+  </datafield>
+  <datafield tag="320" ind1=" " ind2=" ">
+    <subfield code="a">Bibliogr. p. 170-174</subfield>
+  </datafield>
+  <datafield tag="330" ind1=" " ind2=" ">
+    <subfield code="a">Guide illustré des oiseaux de la vallée de la Loire.</subfield>
+  </datafield>
+  <datafield tag="454" ind1=" " ind2="0">
+    <subfield code="t">Birds of the Loire</subfield>
+  </datafield>
+  <datafield tag="600" ind1=" " ind2="1">
+    <subfield code="a">Aubry</subfield>
+    <subfield code="b">Jean</subfield>
+    <subfield code="f">1950-....</subfield>
+    <subfield code="2">rameau</subfield>
+  </datafield>
+  <datafield tag="601" ind1="0" ind2="2">
+    <subfield code="a">Ligue pour la protection des oiseaux</subfield>
+    <subfield code="2">rameau</subfield>
+  </datafield>
+  <datafield tag="606" ind1=" " ind2=" ">
+    <subfield code="a">Oiseaux</subfield>
+    <subfield code="y">Loire (France)</subfield>
+    <subfield code="z">21e siècle</subfield>
+    <subfield code="2">rameau</subfield>
+  </datafield>
+  <datafield tag="607" ind1=" " ind2=" ">
+    <subfield code="a">Loire, Vallée de la (France)</subfield>
+    <subfield code="2">rameau</subfield>
+  </datafield>
+  <datafield tag="675" ind1=" " ind2=" ">
+    <subfield code="a">598.2</subfield>
+  </datafield>
+  <datafield tag="676" ind1=" " ind2=" ">
+    <subfield code="a">598.29445</subfield>
+    <subfield code="v">23</subfield>
+  </datafield>
+  <datafield tag="680" ind1=" " ind2=" ">
+    <subfield code="a">QL690</subfield>
+    <subfield code="b">.A83 2020</subfield>
+  </datafield>
+  <datafield tag="700" ind1=" " ind2="1">
+    <subfield code="a">Aubry</subfield>
+    <subfield code="b">Jean</subfield>
+    <subfield code="f">1950-....</subfield>
+    <subfield code="4">070</subfield>
+  </datafield>
+  <datafield tag="702" ind1=" " ind2="1">
+    <subfield code="a">Petit</subfield>
+    <subfield code="b">Marie</subfield>
+    <subfield code="4">730</subfield>
+  </datafield>
+  <datafield tag="712" ind1="0" ind2="2">
+    <subfield code="a">Ligue pour la protection des oiseaux</subfield>
+  </datafield>
+  <datafield tag="801" ind1=" " ind2="0">
+    <subfield code="a">FR</subfield>
+    <subfield code="b">BNF</subfield>
+    <subfield code="c">20240101</subfield>
+    <subfield code="g">AFNOR</subfield>
+  </datafield>
+  <datafield tag="856" ind1="4" ind2=" ">
+    <subfield code="u">https://example.org/loire</subfield>
+  </datafield>
+</record>

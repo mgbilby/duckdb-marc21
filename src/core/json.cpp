@@ -1,4 +1,4 @@
-//! The deliberately small JSON parser formerly private to avram.cpp; see
+//! The deliberately small JSON parser shared by avram.cpp and marcjson.cpp; see
 //! json.hpp.  Numbers are validated to the RFC grammar and kept as raw text.
 #include "marc/json.hpp"
 

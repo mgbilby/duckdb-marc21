@@ -1,0 +1,32 @@
+{
+  "sourceRecords": [
+    {
+      "recordId": "c9f30e1d-2a44-4a5f-9b8e-6f2d1e0a7b41",
+      "recordType": "MARC_BIB",
+      "parsedRecord": {
+        "id": "c9f30e1d-2a44-4a5f-9b8e-6f2d1e0a7b41",
+        "content": {
+          "leader": "00000nam a2200000 i 4500",
+          "fields": [
+            {"001": "folio-1"},
+            {"245": {"ind1": "0", "ind2": "0", "subfields": [{"a": "FOLIO record one"}]}}
+          ]
+        }
+      }
+    },
+    {
+      "recordId": "0d5f6831-8da8-4346-a4d2-2c497bb9bc66",
+      "recordType": "MARC_BIB",
+      "parsedRecord": {
+        "content": {
+          "leader": "00000nam a2200000 i 4500",
+          "fields": [
+            {"001": "folio-2"},
+            {"245": {"ind1": "0", "ind2": "0", "subfields": [{"a": "FOLIO record two"}]}}
+          ]
+        }
+      }
+    }
+  ],
+  "totalRecords": 2
+}

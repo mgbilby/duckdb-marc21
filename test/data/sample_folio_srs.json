@@ -1,0 +1,42 @@
+{
+  "id": "c9f30e1d-2a44-4a5f-9b8e-6f2d1e0a7b41",
+  "snapshotId": "7a3e11c5-6b02-4a4e-8f0b-2c9d3e5f6a70",
+  "matchedId": "c9f30e1d-2a44-4a5f-9b8e-6f2d1e0a7b41",
+  "generation": 1,
+  "recordType": "MARC_BIB",
+  "state": "ACTUAL",
+  "deleted": false,
+  "order": 0,
+  "externalIdsHolder": {
+    "instanceId": "5b1eb450-ff9a-4d02-b50a-6c0f8b7cf02e",
+    "instanceHrid": "in00000000404"
+  },
+  "additionalInfo": {
+    "suppressDiscovery": false
+  },
+  "metadata": {
+    "createdDate": "2023-03-15T09:30:00.000+00:00",
+    "createdByUserId": "e1b0a5f2-33c4-4d55-8e66-77f8091a2b3c",
+    "updatedDate": "2024-08-01T14:12:00.000+00:00",
+    "updatedByUserId": "e1b0a5f2-33c4-4d55-8e66-77f8091a2b3c"
+  },
+  "parsedRecord": {
+    "id": "c9f30e1d-2a44-4a5f-9b8e-6f2d1e0a7b41",
+    "content": {
+      "leader": "00000cam a2200000 i 4500",
+      "fields": [
+        {"001": "in00000000404"},
+        {"003": "FOLIO-TEST"},
+        {"005": "20240801141200.0"},
+        {"008": "230315s2023    mdu           000 0 eng d"},
+        {"020": {"ind1": " ", "ind2": " ", "subfields": [{"a": "9780000000404"}]}},
+        {"100": {"ind1": "1", "ind2": " ", "subfields": [{"a": "Storage, Source,"}, {"e": "author."}]}},
+        {"245": {"ind1": "1", "ind2": "0", "subfields": [{"a": "FOLIO source record /"}, {"c": "Source Storage."}]}},
+        {"999": {"ind1": "f", "ind2": "f", "subfields": [
+          {"s": "c9f30e1d-2a44-4a5f-9b8e-6f2d1e0a7b41"},
+          {"i": "5b1eb450-ff9a-4d02-b50a-6c0f8b7cf02e"}
+        ]}}
+      ]
+    }
+  }
+}

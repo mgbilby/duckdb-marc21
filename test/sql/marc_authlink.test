@@ -1,0 +1,121 @@
+# name: test/sql/marc_authlink.test
+# description: targeted $0/$1 write-back scalars (marc_set_linked_uri, marc_clear_linked_uris) — the Build Links close-the-loop step over the reconcile macros
+# group: [marc]
+
+require marc21
+
+statement ok
+SET VARIABLE utf8 = 'test/data/sample_utf8.mrc';
+
+# ============================================================================
+# POST-MERGE ONLY: these functions exist once src/core/authlink.cpp and
+# src/marc_authlink_scalars.cpp are compiled into the extension (integration
+# steps in the header comment of src/marc_authlink_scalars.cpp).  Their
+# semantics are pinned standalone by test/cpp/authlink_test.cpp.
+# ============================================================================
+
+# sample_utf8.mrc record 1 carries the headings: 100 "Müller, Anna, 1970-
+# author." and three 650s ("Rivers Poland Łódź.", "Cities and towns Poland",
+# "Rivers." with $2 fast $0 (OCoLC)fst01098319).
+
+# NACO-equivalent heading (no diacritics, no commas, no terminal period)
+# links the 100 — $0 appended after the last existing subfield.
+query I
+SELECT list_transform(
+           list_filter(marc_set_linked_uri(fields, '100', 'Muller Anna 1970 author',
+                                           'http://id.loc.gov/authorities/names/n00000001', '0'),
+                       lambda f: f.tag = '100')[1].subfields,
+           lambda s: s.code || '=' || s.value)
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+['a=Müller, Anna,', 'd=1970-', 'e=author.', '0=http://id.loc.gov/authorities/names/n00000001']
+
+# The heading the queue extracted matches its own field occurrence exactly
+# (marc_headings → marc_set_linked_uri round trip), and only that one: the
+# two other 650s carry no $0 afterwards, the FAST one has its $0 replaced
+# in place (position kept, old value gone).
+query I
+SELECT list_transform(
+           list_filter(marc_set_linked_uri(fields, '650', 'Rivers',
+                                           'http://id.loc.gov/authorities/subjects/sh85114250', '0'),
+                       lambda f: f.tag = '650'),
+           lambda f: list_transform(f.subfields, lambda s: s.code || '=' || s.value))
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+[['a=Rivers', 'z=Poland', 'z=Łódź.'], ['a=Cities and towns', 'z=Poland.'], ['a=Rivers.', '2=fast', '0=http://id.loc.gov/authorities/subjects/sh85114250']]
+
+# Wildcard tag pattern, $1 real-world-object link, and no-match no-op.
+query II
+SELECT len(list_filter(marc_set_linked_uri(fields, '6..', 'Cities and towns Poland',
+                                           'http://www.wikidata.org/entity/Q36', '1'),
+                       lambda f: f.tag = '650' AND
+                                 len(list_filter(f.subfields, lambda s: s.code = '1')) > 0)),
+       marc_set_linked_uri(fields, '1..', 'Nobody, Here', 'http://x.example/', '0') = fields
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+1	true
+
+# NULL fields pass through as NULL.
+query I
+SELECT marc_set_linked_uri(NULL, '100', 'X', 'http://x.example/', '0') IS NULL;
+----
+true
+
+# Clear: the FAST 650's $0 goes; other subfields and tags stay.
+query I
+SELECT list_transform(
+           list_filter(marc_clear_linked_uris(fields, '6..', '0'), lambda f: f.tag = '650')[3].subfields,
+           lambda s: s.code || '=' || s.value)
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+['a=Rivers.', '2=fast']
+
+# set → clear returns to the original fields.
+query I
+SELECT marc_clear_linked_uris(
+           marc_set_linked_uri(fields, '100', 'Muller Anna 1970 author', 'http://x.example/', '0'),
+           '100', '0') = fields
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+true
+
+# Invalid tag pattern and invalid link code are errors.
+statement error
+SELECT marc_set_linked_uri(fields, '65', 'Rivers', 'http://x.example/', '0')
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+exactly 3 characters
+
+statement error
+SELECT marc_clear_linked_uris(fields, '650', '2')
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+'0' or '1'
+
+# The workflow shape (docs/LINKING.md): an UPDATE driven by a (heading, uri)
+# decision table joined on the NACO form, one write-back per row.
+statement ok
+CREATE TABLE bibs AS SELECT record_no, leader, fields FROM read_marc(getvariable('utf8'));
+
+statement ok
+CREATE TABLE links AS SELECT * FROM (VALUES
+    ('Rivers', 'http://id.loc.gov/authorities/subjects/sh85114250'),
+    ('Cities and towns Poland', 'http://id.loc.gov/authorities/subjects/sh85026193')
+) t(heading, uri);
+
+statement ok
+UPDATE bibs SET fields = (
+    SELECT list_reduce(
+               list(struct_pack(h := l.heading, u := l.uri, f := bibs.fields)),
+               lambda acc, x: struct_pack(h := x.h, u := x.u,
+                                          f := marc_set_linked_uri(acc.f, '6..', x.h, x.u, '0')),
+               struct_pack(h := NULL::VARCHAR, u := NULL::VARCHAR, f := bibs.fields)).f
+    FROM links l)
+WHERE record_no = 1;
+
+query I
+SELECT len(list_filter(fields, lambda f:
+           f.tag = '650' AND len(list_filter(f.subfields, lambda s: s.code = '0')) > 0))
+FROM bibs WHERE record_no = 1;
+----
+2

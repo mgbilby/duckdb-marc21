@@ -1,0 +1,208 @@
+# name: test/sql/marc_bibframe.test
+# description: BIBFRAME 2 JSON-LD export (marc_bibframe_jsonld)
+# group: [marc]
+
+require marc21
+
+# Primary assertions use only string functions so the test also runs in
+# minimal builds without the json extension; json-gated extras at the end.
+
+statement ok
+CREATE VIEW bfbook AS SELECT
+    '00000nam a2200000 a 4500' AS leader,
+    [struct_pack(tag := '001', ind1 := NULL::VARCHAR, ind2 := NULL::VARCHAR,
+                 value := 'bf0000001',
+                 subfields := NULL::STRUCT(code VARCHAR, value VARCHAR)[]),
+     struct_pack(tag := '008', ind1 := NULL::VARCHAR, ind2 := NULL::VARCHAR,
+                 value := '890201s1989    nyua          001 0 eng d',
+                 subfields := NULL::STRUCT(code VARCHAR, value VARCHAR)[]),
+     struct_pack(tag := '010', ind1 := ' ', ind2 := ' ', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := '   89012345 ')]),
+     struct_pack(tag := '020', ind1 := ' ', ind2 := ' ', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := '0-306-40615-2 (pbk.)')]),
+     struct_pack(tag := '035', ind1 := ' ', ind2 := ' ', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := '(OCoLC)ocm00012345')]),
+     struct_pack(tag := '050', ind1 := '0', ind2 := '0', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := 'QL737.C4'),
+                               struct_pack(code := 'b', value := 'B47 1989')]),
+     struct_pack(tag := '082', ind1 := '0', ind2 := '0', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := '599.5')]),
+     struct_pack(tag := '100', ind1 := '1', ind2 := ' ', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := 'Berger, Melvin,'),
+                               struct_pack(code := 'e', value := 'author.'),
+                               struct_pack(code := '4', value := 'aut')]),
+     struct_pack(tag := '245', ind1 := '1', ind2 := '0', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := 'Whale watchers :'),
+                               struct_pack(code := 'b', value := 'a guide to the cetaceans /'),
+                               struct_pack(code := 'c', value := 'by Melvin Berger.')]),
+     struct_pack(tag := '264', ind1 := ' ', ind2 := '1', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := 'New York :'),
+                               struct_pack(code := 'b', value := 'Pond Press,'),
+                               struct_pack(code := 'c', value := '1989.')]),
+     struct_pack(tag := '300', ind1 := ' ', ind2 := ' ', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := 'xii, 178 pages :')]),
+     struct_pack(tag := '336', ind1 := ' ', ind2 := ' ', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := 'text'),
+                               struct_pack(code := 'b', value := 'txt'),
+                               struct_pack(code := '2', value := 'rdacontent')]),
+     struct_pack(tag := '337', ind1 := ' ', ind2 := ' ', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := 'unmediated'),
+                               struct_pack(code := 'b', value := 'n'),
+                               struct_pack(code := '2', value := 'rdamedia')]),
+     struct_pack(tag := '338', ind1 := ' ', ind2 := ' ', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := 'volume'),
+                               struct_pack(code := 'b', value := 'nc'),
+                               struct_pack(code := '2', value := 'rdacarrier')]),
+     struct_pack(tag := '650', ind1 := ' ', ind2 := '0', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := 'Whales'),
+                               struct_pack(code := 'v', value := 'Guidebooks.'),
+                               struct_pack(code := '0', value := 'http://id.loc.gov/authorities/subjects/sh85146200')]),
+     struct_pack(tag := '700', ind1 := '1', ind2 := ' ', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'a', value := 'Møller, Käthe,'),
+                               struct_pack(code := 'e', value := 'illustrator.')]),
+     struct_pack(tag := '856', ind1 := '4', ind2 := '0', value := NULL::VARCHAR,
+                 subfields := [struct_pack(code := 'u', value := 'https://example.org/whales')])
+    ] AS fields;
+
+# Work node: @id minted from the 001, subclass from Leader/06, 245 title
+# split into mainTitle/subtitle with the ISBD separators chomped.
+query IIII
+SELECT position('"@id":"bf0000001#work"' IN j) > 0,
+       position('"@type":["bf:Work","bf:Text"]' IN j) > 0,
+       position('"bf:mainTitle":"Whale watchers"' IN j) > 0,
+       position('"bf:subtitle":"a guide to the cetaceans"' IN j) > 0
+FROM (SELECT marc_bibframe_jsonld(leader, fields) AS j FROM bfbook);
+----
+true	true	true	true
+
+# Contribution: the 100 becomes a bflc:PrimaryContribution with a Person
+# agent and a relators URI from $4; the 700's role label comes from $e.
+query III
+SELECT regexp_matches(j, '"@type":\["bf:Contribution","bflc:PrimaryContribution"\],"bf:agent":\{"@type":"bf:Person","rdfs:label":"Berger, Melvin"\},"bf:role":\{"@id":"http://id\.loc\.gov/vocabulary/relators/aut"\}'),
+       position('"rdfs:label":"Møller, Käthe"' IN j) > 0,
+       position('"bf:role":{"@type":"bf:Role","rdfs:label":"illustrator"}' IN j) > 0
+FROM (SELECT marc_bibframe_jsonld(leader, fields) AS j FROM bfbook);
+----
+true	true	true
+
+# Subject with subdivision joined by --, its $0 as @id; language URI from
+# 008/35-37; both halves of the Work/Instance link.
+query IIII
+SELECT position('"rdfs:label":"Whales--Guidebooks"' IN j) > 0,
+       position('"@id":"http://id.loc.gov/authorities/subjects/sh85146200"' IN j) > 0,
+       position('"bf:language":{"@id":"http://id.loc.gov/vocabulary/languages/eng"}' IN j) > 0,
+       position('"bf:instanceOf":{"@id":"bf0000001#work"}' IN j) > 0
+FROM (SELECT marc_bibframe_jsonld(leader, fields) AS j FROM bfbook);
+----
+true	true	true	true
+
+# Instance: provision activity from the 264 _1 with chomped place/agent and
+# a four-digit date, plus the 300$a extent.
+query IIII
+SELECT position('"bf:place":{"@type":"bf:Place","rdfs:label":"New York"}' IN j) > 0,
+       position('"bf:agent":{"@type":"bf:Agent","rdfs:label":"Pond Press"}' IN j) > 0,
+       position('"bf:date":"1989"' IN j) > 0,
+       position('"bf:extent":{"@type":"bf:Extent","rdfs:label":"xii, 178 pages"}' IN j) > 0
+FROM (SELECT marc_bibframe_jsonld(leader, fields) AS j FROM bfbook);
+----
+true	true	true	true
+
+# Identifiers normalized on the way out: ISBN-13 from the qualified 020,
+# LCCN trimmed, the (OCoLC) 035 reduced to its number.
+query III
+SELECT position('{"@type":"bf:Isbn","rdf:value":"9780306406157"}' IN j) > 0,
+       position('{"@type":"bf:Lccn","rdf:value":"89012345"}' IN j) > 0,
+       position('{"@type":"bf:OclcNumber","rdf:value":"12345"}' IN j) > 0
+FROM (SELECT marc_bibframe_jsonld(leader, fields) AS j FROM bfbook);
+----
+true	true	true
+
+# RDA 336-338 as id.loc.gov vocabulary references (content on the Work,
+# media/carrier on the Instance) and the 856$u locator.
+query IIII
+SELECT position('"bf:content":[{"@id":"http://id.loc.gov/vocabulary/contentTypes/txt"}]' IN j) > 0,
+       position('"bf:media":[{"@id":"http://id.loc.gov/vocabulary/mediaTypes/n"}]' IN j) > 0,
+       position('"bf:carrier":[{"@id":"http://id.loc.gov/vocabulary/carriers/nc"}]' IN j) > 0,
+       position('"bf:electronicLocator":[{"@id":"https://example.org/whales"}]' IN j) > 0
+FROM (SELECT marc_bibframe_jsonld(leader, fields) AS j FROM bfbook);
+----
+true	true	true	true
+
+# Classification: 050 keeps its item portion, 082 is plain Ddc.
+query II
+SELECT position('{"@type":"bf:ClassificationLcc","bf:classificationPortion":"QL737.C4","bf:itemPortion":"B47 1989"}' IN j) > 0,
+       position('{"@type":"bf:ClassificationDdc","bf:classificationPortion":"599.5"}' IN j) > 0
+FROM (SELECT marc_bibframe_jsonld(leader, fields) AS j FROM bfbook);
+----
+true	true
+
+# Absent source data drops its key entirely: no Issn on the book, and no
+# literal nulls anywhere in the text.
+query III
+SELECT position('bf:Issn' IN j) > 0,
+       position(':null' IN j) > 0,
+       j LIKE '{"@context":{"bf":"http://id.loc.gov/ontologies/bibframe/"%'
+FROM (SELECT marc_bibframe_jsonld(leader, fields) AS j FROM bfbook);
+----
+false	false	true
+
+# A record with no 001 falls back to the 'record' stem; an audio leader
+# types as bf:Audio; the 022 surfaces as bf:Issn; keys without source data
+# (contribution, subject, provision, locator) stay absent.
+query IIIII
+SELECT position('"@id":"record#work"' IN j) > 0,
+       position('"@type":["bf:Work","bf:Audio"]' IN j) > 0,
+       position('{"@type":"bf:Issn","rdf:value":"2049-3630"}' IN j) > 0,
+       position('bf:contribution' IN j) > 0,
+       position('bf:provisionActivity' IN j) > 0
+FROM (SELECT marc_bibframe_jsonld('00000njm a2200000 a 4500',
+        [struct_pack(tag := '245', ind1 := '0', ind2 := '0', value := NULL::VARCHAR,
+                     subfields := [struct_pack(code := 'a', value := 'Whale songs')]),
+         struct_pack(tag := '022', ind1 := ' ', ind2 := ' ', value := NULL::VARCHAR,
+                     subfields := [struct_pack(code := 'a', value := '2049-3630')])]) AS j);
+----
+true	true	true	false	false
+
+# An unmappable Leader/06 stays a plain bf:Work.
+query I
+SELECT position('"@type":"bf:Work"' IN j) > 0
+FROM (SELECT marc_bibframe_jsonld('00000nzz a2200000 a 4500',
+        [struct_pack(tag := '245', ind1 := '0', ind2 := '0', value := NULL::VARCHAR,
+                     subfields := [struct_pack(code := 'a', value := 'Mystery item')])]) AS j);
+----
+true
+
+# A quote in the source escapes cleanly.
+query I
+SELECT position('"bf:mainTitle":"A \"quoted\" title"' IN j) > 0
+FROM (SELECT marc_bibframe_jsonld('00000nam a2200000 a 4500',
+        [struct_pack(tag := '245', ind1 := '0', ind2 := '0', value := NULL::VARCHAR,
+                     subfields := [struct_pack(code := 'a', value := 'A "quoted" title')])]) AS j);
+----
+true
+
+# NDJSON-style export: one JSON-LD text per record line.
+query I
+SELECT marc_bibframe_jsonld(leader, fields) IS NOT NULL FROM bfbook;
+----
+true
+
+require json
+
+# The text is valid JSON the json extension consumes directly.
+query III
+SELECT json_valid(j),
+       j->'@graph'->0->>'@id',
+       j->'@graph'->1->'bf:provisionActivity'->>'bf:date'
+FROM (SELECT marc_bibframe_jsonld(leader, fields) AS j FROM bfbook);
+----
+true	bf0000001#work	1989
+
+# Structural check: exactly two graph nodes, and the Work carries exactly
+# two contributions.
+query II
+SELECT json_array_length(j->'@graph'),
+       json_array_length(j->'@graph'->0->'bf:contribution')
+FROM (SELECT marc_bibframe_jsonld(leader, fields) AS j FROM bfbook);
+----
+2	2

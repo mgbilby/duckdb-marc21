@@ -14,13 +14,17 @@
 //! skips character decoding when no projected column needs it.
 
 #include "marc21_extension.hpp"
+#include "marc/compat.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/common/compressed_file_system.hpp"
 #include "duckdb/common/file_system.hpp"
 #include "duckdb/common/gzip_file_system.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
+#include "duckdb/main/extension_helper.hpp"
 #include "duckdb/main/settings.hpp"
+#include "duckdb/parser/parsed_data/create_function_info.hpp"
+#include "duckdb/parser/statement/create_statement.hpp"
 
 #include "marc/core.hpp"
 #include "marc/formats.hpp"
@@ -136,7 +140,7 @@ static unique_ptr<FunctionData> BindCommon(ClientContext &context, TableFunction
 	auto result = make_uniq<MarcBindData>();
 	result->path = input.inputs[0].GetValue<string>();
 	for (auto &kv : input.named_parameters) {
-		auto name = StringUtil::Lower(kv.first);
+		auto name = StringUtil::Lower(MarcName(kv.first));
 		if (name == "encoding" && with_encoding) {
 			try {
 				result->encoding = marc::ParseEncoding(kv.second.GetValue<string>());
@@ -373,7 +377,7 @@ static void EmitSubfieldRows(std::deque<SubfieldRow> &pending, const vector<colu
 	pending.erase(pending.begin(), pending.begin() + static_cast<int64_t>(n));
 }
 
-static void AddSubfieldColumns(vector<LogicalType> &types, vector<string> &names) {
+static void AddSubfieldColumns(vector<LogicalType> &types, MarcBindNames &names) {
 	types = {LogicalType::BIGINT,  LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
 	         LogicalType::INTEGER, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
 	         LogicalType::INTEGER, LogicalType::VARCHAR, LogicalType::VARCHAR};
@@ -402,7 +406,7 @@ struct SubfieldsLocalState : public ScanLocalState {
 };
 
 static unique_ptr<FunctionData> SubfieldsBind(ClientContext &context, TableFunctionBindInput &input,
-                                              vector<LogicalType> &types, vector<string> &names) {
+                                              vector<LogicalType> &types, MarcBindNames &names) {
 	AddSubfieldColumns(types, names);
 	return BindCommon(context, input, true);
 }
@@ -493,7 +497,7 @@ static Value FieldsToValue(const marc::Record &rec, const MarcBindData &bind) {
 struct NestedGlobalState : public ScanGlobalState {};
 
 static unique_ptr<FunctionData> NestedBind(ClientContext &context, TableFunctionBindInput &input,
-                                           vector<LogicalType> &types, vector<string> &names) {
+                                           vector<LogicalType> &types, MarcBindNames &names) {
 	types = {LogicalType::BIGINT, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
 	         LogicalType::LIST(FieldStructType())};
 	names = {"record_no", "file", "control_number", "leader", "fields"};
@@ -564,7 +568,7 @@ static void NestedScan(ClientContext &context, TableFunctionInput &data, DataChu
 struct RawGlobalState : public ScanGlobalState {};
 
 static unique_ptr<FunctionData> RawBind(ClientContext &context, TableFunctionBindInput &input,
-                                        vector<LogicalType> &types, vector<string> &names) {
+                                        vector<LogicalType> &types, MarcBindNames &names) {
 	types = {LogicalType::BIGINT, LogicalType::VARCHAR, LogicalType::VARCHAR,
 	         LogicalType::VARCHAR, LogicalType::BLOB,   LogicalType::VARCHAR};
 	names = {"record_no", "file", "control_number", "leader", "raw", "error"};
@@ -816,7 +820,7 @@ struct TextLocalState : public LocalTableFunctionState {
 };
 
 static unique_ptr<FunctionData> TextBind(ClientContext &context, TableFunctionBindInput &input,
-                                         vector<LogicalType> &types, vector<string> &names) {
+                                         vector<LogicalType> &types, MarcBindNames &names) {
 	AddSubfieldColumns(types, names);
 	return BindCommon(context, input, false);
 }
@@ -904,7 +908,23 @@ static void WholeFileScan(ClientContext &context, TableFunctionInput &data, Data
 constexpr char BREAKER_NAME[] = "read_marc_breaker";
 constexpr char MARCJSON_NAME[] = "read_marcjson_file";
 constexpr char ALEPH_NAME[] = "read_alephseq";
+constexpr char MICROLIF_NAME[] = "read_microlif";
 constexpr char MARCXML_NAME[] = "read_marcxml";
+
+//! The macro a statement of the embedded SQL defines, for error messages.
+//! Anything else falls back to the statement's own first line, so a failure
+//! always points at something.
+string MacroLabel(const SQLStatement &statement) {
+	if (statement.type == StatementType::CREATE_STATEMENT) {
+		auto &info = *statement.Cast<CreateStatement>().info;
+		if (info.type == CatalogType::MACRO_ENTRY || info.type == CatalogType::TABLE_MACRO_ENTRY) {
+			return info.Cast<CreateFunctionInfo>().name;
+		}
+	}
+	auto text = statement.query.substr(statement.stmt_location, statement.stmt_length);
+	auto line_end = text.find('\n');
+	return line_end == string::npos ? text : text.substr(0, line_end);
+}
 
 void LoadInternal(ExtensionLoader &loader) {
 	TableFunction nested("read_marc", {LogicalType::VARCHAR}, NestedScan, NestedBind, NestedInitGlobal, ScanInitLocal);
@@ -952,17 +972,54 @@ void LoadInternal(ExtensionLoader &loader) {
 	aleph.projection_pushdown = true;
 	loader.RegisterFunction(aleph);
 
+	TableFunction microlif("read_microlif", {LogicalType::VARCHAR}, WholeFileScan<marc::ParseMicroLif, MICROLIF_NAME>,
+	                       TextBind, TextInitGlobal, WholeFileInitLocal);
+	microlif.named_parameters["tags"] = LogicalType::VARCHAR;
+	microlif.projection_pushdown = true;
+	loader.RegisterFunction(microlif);
+
 	RegisterMarcCopy(loader);
 	RegisterMarcScalars(loader);
 	RegisterMarcEditScalars(loader);
+	RegisterMarcClusterScalars(loader);
+	RegisterMarcAuthlinkScalars(loader);
 	RegisterMarcZ3950(loader);
+	RegisterMarcXslt(loader);
 
 	// Macro layer (nested shapes over the text readers, marc_* helpers) —
-	// plain SQL over the table functions above.
-	Connection con(loader.GetDatabaseInstance());
-	auto result = con.Query(marc::MACROS_SQL);
-	if (result->HasError()) {
-		throw InternalException("marc extension: registering macros failed: %s", result->GetError());
+	// plain SQL over the table functions above.  Those bodies call
+	// list_filter, list_transform, list_contains and jaro_winkler_similarity,
+	// which the core_functions extension supplies rather than the engine:
+	// released DuckDB binaries link it statically, a bare extension-template
+	// build does not, and the order two extensions load in is not a documented
+	// guarantee — nor is this binary necessarily the one that built the
+	// .duckdb_extension being loaded.  Ask for it before binding anything; a
+	// no-op when it is already there.
+	auto &instance = loader.GetDatabaseInstance();
+	ExtensionHelper::AutoLoadExtension(instance, "core_functions");
+
+	Connection con(instance);
+	vector<unique_ptr<SQLStatement>> statements;
+	try {
+		statements = con.ExtractStatements(marc::MACROS_SQL);
+	} catch (const std::exception &e) {
+		throw InternalException("marc extension: parsing the embedded macros failed: %s", e.what());
+	}
+	// One statement at a time, so a failure names the macro that caused it:
+	// registering the batch in one call reports the missing function without
+	// saying which of the 150-odd bodies asked for it.
+	for (auto &statement : statements) {
+		auto label = MacroLabel(*statement);
+		unique_ptr<MaterializedQueryResult> result;
+		try {
+			result = con.Query(std::move(statement));
+		} catch (const std::exception &e) {
+			throw InternalException("marc extension: registering macro %s failed: %s", label, e.what());
+		}
+		if (result->HasError()) {
+			throw InternalException("marc extension: registering macro %s failed: %s", label,
+			                        result->GetError());
+		}
 	}
 }
 

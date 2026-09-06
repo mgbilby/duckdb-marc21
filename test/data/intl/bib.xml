@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- International crosswalk fixtures: three MARC 21 bibliographic records.
+     Record 1: rich French-language book (ISBN-10, 264 imprint, LCSH/DDC/LCC,
+     relator codes, linking entry) - exercises UNIMARC, ONIX and EDM mapping.
+     Record 2: musical sound recording (leader/06 j, 007 sd) - ONIX audio
+     form, EDM SOUND. Record 3: videorecording (leader/06 g) - EDM VIDEO. -->
+<collection xmlns="http://www.loc.gov/MARC21/slim">
+  <record>
+    <leader>00000nam a2200000 a 4500</leader>
+    <controlfield tag="001">intl-bib-0001</controlfield>
+    <controlfield tag="005">20240101120000.0</controlfield>
+    <controlfield tag="008">240101s2021    fr a     b    001 0 fre d</controlfield>
+    <datafield tag="020" ind1=" " ind2=" ">
+      <subfield code="a">0-306-40615-2</subfield>
+    </datafield>
+    <datafield tag="040" ind1=" " ind2=" ">
+      <subfield code="a">QMU</subfield>
+      <subfield code="b">fre</subfield>
+      <subfield code="c">QMU</subfield>
+      <subfield code="d">CaQMU</subfield>
+    </datafield>
+    <datafield tag="041" ind1="0" ind2=" ">
+      <subfield code="a">fre</subfield>
+      <subfield code="a">eng</subfield>
+    </datafield>
+    <datafield tag="050" ind1=" " ind2="4">
+      <subfield code="a">QL696.A52</subfield>
+      <subfield code="b">C67 2021</subfield>
+    </datafield>
+    <datafield tag="080" ind1=" " ind2=" ">
+      <subfield code="a">598.2</subfield>
+    </datafield>
+    <datafield tag="082" ind1="0" ind2="4">
+      <subfield code="a">598.41</subfield>
+      <subfield code="2">23</subfield>
+    </datafield>
+    <datafield tag="100" ind1="1" ind2=" ">
+      <subfield code="a">Côté, Amélie,</subfield>
+      <subfield code="d">1975-</subfield>
+      <subfield code="e">author.</subfield>
+      <subfield code="4">aut</subfield>
+    </datafield>
+    <datafield tag="245" ind1="1" ind2="4">
+      <subfield code="a">Les canards du Saint-Laurent :</subfield>
+      <subfield code="b">guide d'observation /</subfield>
+      <subfield code="c">Amélie Côté.</subfield>
+    </datafield>
+    <datafield tag="250" ind1=" " ind2=" ">
+      <subfield code="a">2e édition.</subfield>
+    </datafield>
+    <datafield tag="264" ind1=" " ind2="1">
+      <subfield code="a">Montréal :</subfield>
+      <subfield code="b">Éditions du Lac,</subfield>
+      <subfield code="c">2021.</subfield>
+    </datafield>
+    <datafield tag="300" ind1=" " ind2=" ">
+      <subfield code="a">214 pages :</subfield>
+      <subfield code="b">illustrations ;</subfield>
+      <subfield code="c">23 cm.</subfield>
+    </datafield>
+    <datafield tag="490" ind1="0" ind2=" ">
+      <subfield code="a">Faune du Québec ;</subfield>
+      <subfield code="v">7</subfield>
+    </datafield>
+    <datafield tag="500" ind1=" " ind2=" ">
+      <subfield code="a">Comprend un index.</subfield>
+    </datafield>
+    <datafield tag="504" ind1=" " ind2=" ">
+      <subfield code="a">Comprend des références bibliographiques.</subfield>
+    </datafield>
+    <datafield tag="520" ind1=" " ind2=" ">
+      <subfield code="a">Guide d'identification des canards du fleuve Saint-Laurent.</subfield>
+    </datafield>
+    <datafield tag="600" ind1="1" ind2="0">
+      <subfield code="a">Audubon, Jean,</subfield>
+      <subfield code="d">1785-1851.</subfield>
+    </datafield>
+    <datafield tag="610" ind1="2" ind2="0">
+      <subfield code="a">Société ornithologique du Québec.</subfield>
+    </datafield>
+    <datafield tag="650" ind1=" " ind2="0">
+      <subfield code="a">Ducks</subfield>
+      <subfield code="z">Québec (Province)</subfield>
+      <subfield code="y">21st century.</subfield>
+    </datafield>
+    <datafield tag="651" ind1=" " ind2="0">
+      <subfield code="a">Saint Lawrence River.</subfield>
+    </datafield>
+    <datafield tag="700" ind1="1" ind2=" ">
+      <subfield code="a">Møller, Käthe,</subfield>
+      <subfield code="e">translator.</subfield>
+      <subfield code="4">trl</subfield>
+    </datafield>
+    <datafield tag="710" ind1="2" ind2=" ">
+      <subfield code="a">Éditions du Lac.</subfield>
+    </datafield>
+    <datafield tag="780" ind1="0" ind2="0">
+      <subfield code="t">Oiseaux du fleuve</subfield>
+      <subfield code="x">1234-5679</subfield>
+    </datafield>
+    <datafield tag="856" ind1="4" ind2="0">
+      <subfield code="u">https://example.org/canards</subfield>
+    </datafield>
+  </record>
+  <record>
+    <leader>00000njm a2200000 a 4500</leader>
+    <controlfield tag="001">intl-bib-0002</controlfield>
+    <controlfield tag="007">sd fsngnnmmned</controlfield>
+    <controlfield tag="008">240101s1999    xxu|||||||||||||||||eng d</controlfield>
+    <datafield tag="100" ind1="1" ind2=" ">
+      <subfield code="a">Duckworth, Ella.</subfield>
+      <subfield code="4">cmp</subfield>
+    </datafield>
+    <datafield tag="245" ind1="1" ind2="0">
+      <subfield code="a">River songs</subfield>
+    </datafield>
+    <datafield tag="260" ind1=" " ind2=" ">
+      <subfield code="a">New York :</subfield>
+      <subfield code="b">Pond Records,</subfield>
+      <subfield code="c">1999.</subfield>
+    </datafield>
+    <datafield tag="300" ind1=" " ind2=" ">
+      <subfield code="a">1 audio disc :</subfield>
+      <subfield code="b">digital ;</subfield>
+      <subfield code="c">12 cm.</subfield>
+    </datafield>
+  </record>
+  <record>
+    <leader>00000ngm a2200000 a 4500</leader>
+    <controlfield tag="001">intl-bib-0003</controlfield>
+    <controlfield tag="007">vd cvaizu</controlfield>
+    <controlfield tag="008">240101s2014    fr |||||||||||||||||eng d</controlfield>
+    <datafield tag="245" ind1="0" ind2="0">
+      <subfield code="a">Migration</subfield>
+    </datafield>
+    <datafield tag="264" ind1=" " ind2="1">
+      <subfield code="a">Paris :</subfield>
+      <subfield code="b">Ciné-Fleuve,</subfield>
+      <subfield code="c">2014.</subfield>
+    </datafield>
+    <datafield tag="856" ind1="4" ind2="0">
+      <subfield code="u">https://example.org/migration</subfield>
+    </datafield>
+  </record>
+</collection>

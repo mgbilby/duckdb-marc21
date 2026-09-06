@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MARC 21 Authority fixtures (leader/06 = z) for the MADS crosswalk:
+     one personal-name record with see-from and see-also references, one
+     topical-term record. -->
+<collection xmlns="http://www.loc.gov/MARC21/slim">
+  <record>
+    <leader>00000nz  a2200000n  4500</leader>
+    <controlfield tag="001">intl-auth-0001</controlfield>
+    <controlfield tag="005">20240101120000.0</controlfield>
+    <controlfield tag="008">240101n| azannaabn          |n aaa      </controlfield>
+    <datafield tag="010" ind1=" " ind2=" ">
+      <subfield code="a">n  2024000001</subfield>
+    </datafield>
+    <datafield tag="100" ind1="1" ind2=" ">
+      <subfield code="a">Côté, Amélie,</subfield>
+      <subfield code="d">1975-</subfield>
+    </datafield>
+    <datafield tag="400" ind1="1" ind2=" ">
+      <subfield code="a">Cote, Amelie,</subfield>
+      <subfield code="d">1975-</subfield>
+    </datafield>
+    <datafield tag="400" ind1="1" ind2=" ">
+      <subfield code="a">Côté-Bélanger, Amélie,</subfield>
+      <subfield code="d">1975-</subfield>
+    </datafield>
+    <datafield tag="500" ind1="1" ind2=" ">
+      <subfield code="a">Bélanger, A.</subfield>
+      <subfield code="q">(Amélie)</subfield>
+    </datafield>
+    <datafield tag="667" ind1=" " ind2=" ">
+      <subfield code="a">Do not confuse with Côté, Amélie, 1948-</subfield>
+    </datafield>
+    <datafield tag="670" ind1=" " ind2=" ">
+      <subfield code="a">Les canards du Saint-Laurent, 2021:</subfield>
+      <subfield code="b">title page (Amélie Côté)</subfield>
+    </datafield>
+  </record>
+  <record>
+    <leader>00000nz  a2200000n  4500</leader>
+    <controlfield tag="001">intl-auth-0002</controlfield>
+    <controlfield tag="008">240101n| azannaabn          |n aaa      </controlfield>
+    <datafield tag="010" ind1=" " ind2=" ">
+      <subfield code="a">sh2024000002</subfield>
+    </datafield>
+    <datafield tag="150" ind1=" " ind2=" ">
+      <subfield code="a">Ducks</subfield>
+    </datafield>
+    <datafield tag="450" ind1=" " ind2=" ">
+      <subfield code="a">Wild ducks</subfield>
+    </datafield>
+    <datafield tag="550" ind1=" " ind2=" ">
+      <subfield code="w">g</subfield>
+      <subfield code="a">Birds</subfield>
+    </datafield>
+    <datafield tag="551" ind1=" " ind2=" ">
+      <subfield code="a">Saint Lawrence River</subfield>
+    </datafield>
+  </record>
+</collection>

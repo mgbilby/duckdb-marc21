@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Hand-built JAPAN/MARC MARC21 bibliographic record in the MARC 21 slim
+     XML container - the shape COPY (FORMAT marcxml) produces for an NDL
+     file read with read_marc(..., encoding := 'utf8').  It is MARC 21
+     already; what needs normalizing is the reading (ヨミ) linkage:
+       * the 245 has a katakana reading in an 880 whose $6 carries neither
+         an occurrence number nor a script identification code, and the 245
+         itself has no reciprocal $6;
+       * the 100 has a katakana reading in an 880 numbered out of step;
+       * a romaji reading of the title is carried in a further 880 with no
+         script code, which must come out as '(B';
+       * one 880 is explicitly unpaired (occurrence 00) and must stay so.
+     Kanji, kana and romaji, UTF-8. -->
+<record xmlns="http://www.loc.gov/MARC21/slim">
+  <leader>00000nam a2200000 i 4500</leader>
+  <controlfield tag="001">JP24012345</controlfield>
+  <controlfield tag="008">240601s2023    ja |||||||||||||||jpn d</controlfield>
+  <datafield tag="020" ind1=" " ind2=" ">
+    <subfield code="a">9784000612345</subfield>
+  </datafield>
+  <datafield tag="100" ind1="1" ind2=" ">
+    <subfield code="a">夏目, 漱石</subfield>
+    <subfield code="d">1867-1916</subfield>
+  </datafield>
+  <datafield tag="245" ind1="1" ind2="0">
+    <subfield code="a">吾輩は猫である /</subfield>
+    <subfield code="c">夏目漱石 著.</subfield>
+  </datafield>
+  <datafield tag="264" ind1=" " ind2="1">
+    <subfield code="a">東京 :</subfield>
+    <subfield code="b">岩波書店,</subfield>
+    <subfield code="c">2023.</subfield>
+  </datafield>
+  <datafield tag="300" ind1=" " ind2=" ">
+    <subfield code="a">452 p. ;</subfield>
+    <subfield code="c">15 cm.</subfield>
+  </datafield>
+  <datafield tag="880" ind1="1" ind2="0">
+    <subfield code="6">245</subfield>
+    <subfield code="a">ワガハイ ワ ネコ デ アル /</subfield>
+    <subfield code="c">ナツメ ソウセキ チョ.</subfield>
+  </datafield>
+  <datafield tag="880" ind1=" " ind2=" ">
+    <subfield code="6">100-07</subfield>
+    <subfield code="a">ナツメ, ソウセキ</subfield>
+    <subfield code="d">1867-1916</subfield>
+  </datafield>
+  <datafield tag="880" ind1="1" ind2="0">
+    <subfield code="6">245</subfield>
+    <subfield code="a">Wagahai wa neko de aru /</subfield>
+    <subfield code="c">Natsume Soseki cho.</subfield>
+  </datafield>
+  <datafield tag="880" ind1=" " ind2=" ">
+    <subfield code="6">500-00/$1</subfield>
+    <subfield code="a">オビ ニ ヨル</subfield>
+  </datafield>
+</record>

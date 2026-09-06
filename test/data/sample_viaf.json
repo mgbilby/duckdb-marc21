@@ -1,0 +1,70 @@
+{
+  "searchRetrieveResponse": {
+    "version": "1.1",
+    "numberOfRecords": "2",
+    "resultSetIdleTime": "1",
+    "records": {
+      "record": [
+        {
+          "recordSchema": "http://viaf.org/VIAFCluster",
+          "recordPacking": "xml",
+          "recordData": {
+            "VIAFCluster": {
+              "viafID": "50566653",
+              "nameType": "Personal",
+              "mainHeadings": {
+                "data": [
+                  {
+                    "text": "Twain, Mark, 1835-1910",
+                    "sources": {
+                      "s": ["LC", "DNB", "BNF", "NDL"],
+                      "sid": ["LC|n79021164", "DNB|118624822", "BNF|11926605", "NDL|00458001"]
+                    }
+                  },
+                  {
+                    "text": "Twain, Mark",
+                    "sources": {
+                      "s": ["WKP"],
+                      "sid": ["WKP|Q7245"]
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "recordPosition": "1"
+        },
+        {
+          "recordSchema": "http://viaf.org/VIAFCluster",
+          "recordPacking": "xml",
+          "recordData": {
+            "VIAFCluster": {
+              "viafID": "314962361",
+              "nameType": "Corporate",
+              "mainHeadings": {
+                "data": [
+                  {
+                    "text": "Mark Twain Project",
+                    "sources": {
+                      "s": ["LC"],
+                      "sid": ["LC|no2011087251"]
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "recordPosition": "2"
+        }
+      ]
+    },
+    "echoedSearchRetrieveRequest": {
+      "version": "1.1",
+      "query": "local.mainHeadingEl all \"Twain, Mark\"",
+      "maximumRecords": "5",
+      "startRecord": "1",
+      "recordPacking": "xml",
+      "recordSchema": "BriefVIAF"
+    }
+  }
+}

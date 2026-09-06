@@ -197,6 +197,51 @@ static void TestNewRecordTemplates() {
 	}
 }
 
+static void TestNewRecordAuthority() {
+	Record r = NewRecord("authority");
+	CHECK_EQ(r.leader.size(), size_t(24));
+	CHECK_EQ(r.leader[5], 'n');
+	CHECK_EQ(r.leader[6], 'z');
+	CHECK_EQ(r.leader[7], ' '); // 07-08 undefined in the authority format
+	CHECK_EQ(r.leader[8], ' ');
+	CHECK_EQ(r.leader[9], 'a');
+	CHECK_EQ(r.leader[17], 'o'); // incomplete authority record
+	CHECK_EQ(r.leader.substr(20), std::string("4500"));
+
+	const Field *f008 = FindTag(r, "008");
+	CHECK(f008 != nullptr && f008->is_control);
+	CHECK_EQ(f008->control_value.size(), size_t(40));
+	CHECK_EQ(f008->control_value.substr(0, 6), std::string("      "));
+	CHECK_EQ(f008->control_value[6], 'n');  // geographic subdivision: n/a
+	CHECK_EQ(f008->control_value[9], 'a');  // established heading
+	CHECK_EQ(f008->control_value[10], 'z'); // cataloging rules: other
+	CHECK_EQ(f008->control_value[11], 'n'); // thesaurus: n/a
+	CHECK_EQ(f008->control_value[14], 'a'); // main/added entry use: yes
+	CHECK_EQ(f008->control_value[15], 'a'); // subject use: yes
+	CHECK_EQ(f008->control_value[16], 'b'); // series use: no
+	CHECK_EQ(f008->control_value[33], 'd'); // level of establishment: preliminary
+	CHECK_EQ(f008->control_value[39], 'd'); // cataloging source: other
+
+	// Placeholder heading is a 100, not a 245.
+	CHECK(FindTag(r, "245") == nullptr);
+	const Field *f100 = FindTag(r, "100");
+	CHECK(f100 != nullptr && !f100->is_control);
+	CHECK_EQ(f100->ind1, std::string(" "));
+	CHECK_EQ(f100->ind2, std::string(" "));
+	CHECK_EQ(f100->subfields.size(), size_t(1));
+	CHECK_EQ(f100->subfields[0].code, std::string("a"));
+	CHECK_EQ(f100->subfields[0].value, std::string(""));
+
+	// Round-trips like the bibliographic templates.
+	std::string raw = WriteRecord(r);
+	Record back = ParseRecord(raw, Encoding::AUTO);
+	CHECK_EQ(back.leader[6], 'z');
+	CHECK_EQ(back.leader[17], 'o');
+	CHECK_EQ(back.fields.size(), r.fields.size());
+	CHECK_EQ(back.fields[0].control_value, f008->control_value);
+	CHECK_EQ(back.fields[1].tag, std::string("100"));
+}
+
 static void TestNewRecordUnknown() {
 	bool threw = false;
 	try {
@@ -207,6 +252,7 @@ static void TestNewRecordUnknown() {
 		CHECK(msg.find("cd-rom") != std::string::npos);
 		CHECK(msg.find("book") != std::string::npos);
 		CHECK(msg.find("electronic") != std::string::npos);
+		CHECK(msg.find("authority") != std::string::npos);
 	}
 	CHECK(threw);
 }
@@ -344,6 +390,135 @@ static void TestGenerate33XNotatedMusicAndMap() {
 	Check33X(out, "336", "cartographic image", "cri", "rdacontent");
 }
 
+static void TestGenerate33XCarriersFrom007Smd() {
+	// Video carriers by 007/01: cassette, cartridge, reel; disc stays default.
+	Record vhs = Rec({CF("007", "vf cbahou"), DF("245", "0", "0", {{"a", "T"}})});
+	vhs.leader[6] = 'g';
+	Record out = Generate33X(vhs);
+	Check33X(out, "336", "two-dimensional moving image", "tdi", "rdacontent");
+	Check33X(out, "337", "video", "v", "rdamedia");
+	Check33X(out, "338", "videocassette", "vf", "rdacarrier");
+
+	Record vreel = Rec({CF("007", "vr cbahou"), DF("245", "0", "0", {{"a", "T"}})});
+	vreel.leader[6] = 'g';
+	out = Generate33X(vreel);
+	Check33X(out, "338", "videotape reel", "vr", "rdacarrier");
+
+	// Sound carriers: 007/01 's' cassette, 't' tape reel; unknown SMD → disc.
+	Record cassette = Rec({CF("007", "ss lsnjlc"), DF("245", "0", "0", {{"a", "T"}})});
+	cassette.leader[6] = 'i';
+	out = Generate33X(cassette);
+	Check33X(out, "337", "audio", "s", "rdamedia");
+	Check33X(out, "338", "audiocassette", "ss", "rdacarrier");
+
+	Record reel = Rec({CF("007", "st lsnjlc"), DF("245", "0", "0", {{"a", "T"}})});
+	reel.leader[6] = 'j';
+	out = Generate33X(reel);
+	Check33X(out, "338", "audiotape reel", "st", "rdacarrier");
+
+	Record unknown_smd = Rec({CF("007", "sz"), DF("245", "0", "0", {{"a", "T"}})});
+	unknown_smd.leader[6] = 'i';
+	out = Generate33X(unknown_smd);
+	Check33X(out, "338", "audio disc", "sd", "rdacarrier");
+
+	// Electronic carriers beyond cr/cd: tape reel and card.
+	Record tape = Rec({CF("007", "ch cga"), DF("245", "0", "0", {{"a", "T"}})});
+	tape.leader[6] = 'm';
+	out = Generate33X(tape);
+	Check33X(out, "338", "computer tape reel", "ca", "rdacarrier");
+
+	Record card = Rec({CF("007", "ck cga"), DF("245", "0", "0", {{"a", "T"}})});
+	card.leader[6] = 'm';
+	out = Generate33X(card);
+	Check33X(out, "338", "computer card", "ck", "rdacarrier");
+
+	// Microform: microfiche vs microfilm reel; media as before.
+	Record fiche = Rec({CF("007", "he bmb024"), DF("245", "0", "0", {{"a", "T"}})});
+	out = Generate33X(fiche);
+	Check33X(out, "336", "text", "txt", "rdacontent");
+	Check33X(out, "337", "microform", "h", "rdamedia");
+	Check33X(out, "338", "microfiche", "he", "rdacarrier");
+
+	Record film = Rec({CF("007", "hd afu"), DF("245", "0", "0", {{"a", "T"}})});
+	out = Generate33X(film);
+	Check33X(out, "338", "microfilm reel", "hd", "rdacarrier");
+}
+
+static void TestGenerate33XTactileAndProjected() {
+	// Text leader + tactile 007: braille volume — content refines to
+	// tactile text, media unmediated, carrier volume.
+	Record braille = Rec({CF("007", "fb"), DF("245", "0", "0", {{"a", "T"}})});
+	Record out = Generate33X(braille);
+	Check33X(out, "336", "tactile text", "tct", "rdacontent");
+	Check33X(out, "337", "unmediated", "n", "rdamedia");
+	Check33X(out, "338", "volume", "nc", "rdacarrier");
+
+	// Non-text leader + tactile 007: media/carrier only, content unrefined.
+	Record tmap = Rec({CF("007", "fb"), DF("245", "0", "0", {{"a", "T"}})});
+	tmap.leader[6] = 'e';
+	out = Generate33X(tmap);
+	Check33X(out, "336", "cartographic image", "cri", "rdacontent");
+	Check33X(out, "337", "unmediated", "n", "rdamedia");
+
+	// Leader g + projected-graphic 007 (slide): still image, not moving.
+	Record slide = Rec({CF("007", "gs cbcjf"), DF("245", "0", "0", {{"a", "T"}})});
+	slide.leader[6] = 'g';
+	out = Generate33X(slide);
+	Check33X(out, "336", "still image", "sti", "rdacontent");
+	Check33X(out, "337", "projected", "g", "rdamedia");
+	Check33X(out, "338", "slide", "gs", "rdacarrier");
+
+	Record transparency = Rec({CF("007", "gt cbcjf"), DF("245", "0", "0", {{"a", "T"}})});
+	transparency.leader[6] = 'g';
+	out = Generate33X(transparency);
+	Check33X(out, "338", "overhead transparency", "gt", "rdacarrier");
+
+	// Motion-picture 007 keeps the moving-image content; carrier film reel.
+	Record movie = Rec({CF("007", "mr baaa"), DF("245", "0", "0", {{"a", "T"}})});
+	movie.leader[6] = 'g';
+	out = Generate33X(movie);
+	Check33X(out, "336", "two-dimensional moving image", "tdi", "rdacontent");
+	Check33X(out, "337", "projected", "g", "rdamedia");
+	Check33X(out, "338", "film reel", "mr", "rdacarrier");
+}
+
+static void TestGenerate33XContentFrom006() {
+	// Mixed-material leader ('p' maps to nothing) with a computer-file 006:
+	// content from 006/00, program vs dataset from 006/09.
+	std::string comp006 = "m        b        ";
+	Record kit = Rec({CF("006", comp006), DF("245", "0", "0", {{"a", "T"}})});
+	kit.leader[6] = 'p';
+	Record out = Generate33X(kit);
+	Check33X(out, "336", "computer program", "cop", "rdacontent");
+
+	std::string data006 = "m                 ";
+	Record datakit = Rec({CF("006", data006), DF("245", "0", "0", {{"a", "T"}})});
+	datakit.leader[6] = 'p';
+	out = Generate33X(datakit);
+	Check33X(out, "336", "computer dataset", "cod", "rdacontent");
+
+	// First mapped 006 wins: an unmapped 006 ('k') is skipped for a mapped one.
+	Record two006 = Rec({
+	    CF("006", "k                 "),
+	    CF("006", "jmusic            "),
+	    DF("245", "0", "0", {{"a", "T"}}),
+	});
+	two006.leader[6] = 'p';
+	out = Generate33X(two006);
+	Check33X(out, "336", "performed music", "prm", "rdacontent");
+
+	// A mapped leader never defers to 006: text stays text.
+	Record book = Rec({CF("006", comp006), DF("245", "0", "0", {{"a", "T"}})});
+	out = Generate33X(book);
+	Check33X(out, "336", "text", "txt", "rdacontent");
+
+	// Unmapped leader and only unmapped 006s: still no 336.
+	Record still = Rec({CF("006", "k                 "), DF("245", "0", "0", {{"a", "T"}})});
+	still.leader[6] = 'p';
+	out = Generate33X(still);
+	CHECK(FindTag(out, "336") == nullptr);
+}
+
 static void TestGenerate33XExistingAndUndetermined() {
 	// An existing 336 is never replaced or duplicated; 337/338 still added.
 	Record r = Rec({
@@ -382,6 +557,7 @@ int main() {
 	TestCompleteness();
 	TestRankingMonotonicity();
 	TestNewRecordTemplates();
+	TestNewRecordAuthority();
 	TestNewRecordUnknown();
 	TestRdaExpand();
 	TestRdaExpandBoundaries();
@@ -390,6 +566,9 @@ int main() {
 	TestGenerate33XAudio();
 	TestGenerate33XComputer();
 	TestGenerate33XNotatedMusicAndMap();
+	TestGenerate33XCarriersFrom007Smd();
+	TestGenerate33XTactileAndProjected();
+	TestGenerate33XContentFrom006();
 	TestGenerate33XExistingAndUndetermined();
 	return CHECKS_MAIN_RESULT();
 }

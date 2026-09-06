@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Hand-built RUSMARC bibliographic record in the MARC 21 slim XML
+     container (the shape COPY (FORMAT marcxml) produces for a RUSMARC file
+     read with read_marc(..., encoding := 'utf8')): UNIMARC record label,
+     010 ISBN, 011 ISSN with an 802 ISSN centre code, 100 general processing
+     data with the target-audience and government-publication positions
+     coded, 101/102, the 2XX description block, 3XX notes, 606 subject,
+     675 UDC and 686 BBK classification, 70X responsibility, 801 with the
+     Russian agency and cataloguing-rules conventions, and a 906 national
+     field.  Content is Cyrillic UTF-8. -->
+<record xmlns="http://www.loc.gov/MARC21/slim">
+  <leader>00000nam0 2200000   450 </leader>
+  <controlfield tag="001">RUS0000001</controlfield>
+  <controlfield tag="005">20240301093000.0</controlfield>
+  <datafield tag="010" ind1=" " ind2=" ">
+    <subfield code="a">978-5-17-118426-4</subfield>
+    <subfield code="d">550 RUB</subfield>
+  </datafield>
+  <datafield tag="011" ind1=" " ind2=" ">
+    <subfield code="a">0869-6047</subfield>
+  </datafield>
+  <datafield tag="100" ind1=" " ind2=" ">
+    <subfield code="a">20240301d2021    e  10rusy50      ba</subfield>
+  </datafield>
+  <datafield tag="101" ind1="0" ind2=" ">
+    <subfield code="a">rus</subfield>
+  </datafield>
+  <datafield tag="102" ind1=" " ind2=" ">
+    <subfield code="a">RU</subfield>
+  </datafield>
+  <datafield tag="200" ind1="1" ind2=" ">
+    <subfield code="a">Птицы Волги</subfield>
+    <subfield code="e">полевой определитель</subfield>
+    <subfield code="f">Иван Петров</subfield>
+  </datafield>
+  <datafield tag="205" ind1=" " ind2=" ">
+    <subfield code="a">3-е издание</subfield>
+  </datafield>
+  <datafield tag="210" ind1=" " ind2=" ">
+    <subfield code="a">Москва</subfield>
+    <subfield code="c">Наука</subfield>
+    <subfield code="d">2021</subfield>
+  </datafield>
+  <datafield tag="215" ind1=" " ind2=" ">
+    <subfield code="a">248 с.</subfield>
+    <subfield code="c">ил.</subfield>
+    <subfield code="d">22 см</subfield>
+  </datafield>
+  <datafield tag="320" ind1=" " ind2=" ">
+    <subfield code="a">Библиогр.: с. 240-245</subfield>
+  </datafield>
+  <datafield tag="330" ind1=" " ind2=" ">
+    <subfield code="a">Определитель птиц Поволжья.</subfield>
+  </datafield>
+  <datafield tag="606" ind1=" " ind2=" ">
+    <subfield code="a">Птицы</subfield>
+    <subfield code="y">Поволжье</subfield>
+    <subfield code="2">nlr_sh</subfield>
+  </datafield>
+  <datafield tag="675" ind1=" " ind2=" ">
+    <subfield code="a">598.2(470.4)</subfield>
+  </datafield>
+  <datafield tag="686" ind1=" " ind2=" ">
+    <subfield code="a">28.693.35</subfield>
+    <subfield code="2">rubbk</subfield>
+  </datafield>
+  <datafield tag="700" ind1=" " ind2="1">
+    <subfield code="a">Петров</subfield>
+    <subfield code="b">Иван</subfield>
+    <subfield code="f">1968-</subfield>
+    <subfield code="4">070</subfield>
+  </datafield>
+  <datafield tag="801" ind1=" " ind2="0">
+    <subfield code="a">RU</subfield>
+    <subfield code="b">RuMoRGB</subfield>
+    <subfield code="c">20240301</subfield>
+    <subfield code="g">psbo</subfield>
+  </datafield>
+  <datafield tag="802" ind1=" " ind2=" ">
+    <subfield code="a">07</subfield>
+  </datafield>
+  <datafield tag="906" ind1=" " ind2=" ">
+    <subfield code="a">ОРФ</subfield>
+    <subfield code="b">2-15-3</subfield>
+  </datafield>
+  <datafield tag="856" ind1="4" ind2="0">
+    <subfield code="u">https://example.org/ptitsy-volgi</subfield>
+  </datafield>
+</record>

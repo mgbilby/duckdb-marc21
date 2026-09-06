@@ -3,7 +3,7 @@
 extension:
   name: marc21
   description: Read, write, validate and edit MARC 21 bibliographic data (ISO 2709, MARCXML, MARC-in-JSON, breaker, Aleph; UTF-8 and MARC-8)
-  version: 1.0.0
+  version: 1.0.1
   language: C++
   build: cmake
   license: MIT

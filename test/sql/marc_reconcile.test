@@ -1,0 +1,118 @@
+# name: test/sql/marc_reconcile.test
+# description: authority reconciliation (src/macros/reconcile.sql) — URL builders, the per-heading queue, and candidate shaping over API-shaped fixtures
+# group: [marc]
+
+require marc21
+
+require json
+
+statement ok
+SET VARIABLE utf8 = 'test/data/sample_utf8.mrc';
+
+# ---------------------------------------------------------------------------
+# URL builders (pure SQL over core url_encode; validated live pre-merge).
+# ---------------------------------------------------------------------------
+
+query I
+SELECT marc_idloc_label_url('Twain, Mark, 1835-1910');
+----
+https://id.loc.gov/authorities/names/label/Twain%2C%20Mark%2C%201835-1910
+
+query I
+SELECT marc_idloc_label_url('Cooking', scheme := 'subjects');
+----
+https://id.loc.gov/authorities/subjects/label/Cooking
+
+query I
+SELECT marc_idloc_suggest_url('Twain, Mark');
+----
+https://id.loc.gov/authorities/names/suggest2?q=Twain%2C%20Mark&count=5
+
+query I
+SELECT marc_viaf_search_url('Twain, Mark');
+----
+https://viaf.org/viaf/search?query=local.mainHeadingEl%20all%20%22Twain%2C%20Mark%22&maximumRecords=5&httpAccept=application/json
+
+query I
+SELECT marc_viaf_search_url('Twain', index_ := 'cql.any', max_records := 1);
+----
+https://viaf.org/viaf/search?query=cql.any%20all%20%22Twain%22&maximumRecords=1&httpAccept=application/json
+
+query I
+SELECT marc_wikidata_search_url('Mark Twain');
+----
+https://www.wikidata.org/w/api.php?action=wbsearchentities&format=json&language=en&uselang=en&type=item&limit=5&search=Mark%20Twain
+
+# ---------------------------------------------------------------------------
+# The reconciliation queue: one row per distinct heading with its count and
+# lookup URL (base 'idloc' | 'viaf' | 'wikidata', or a literal prefix).
+# sample_utf8.mrc record 1 carries the only headings (100 + three 650s).
+# ---------------------------------------------------------------------------
+
+query III
+SELECT heading, n_occurrences, url
+FROM marc_reconcile_headings(getvariable('utf8'), 'https://ex.org/q=');
+----
+Cities and towns Poland.	1	https://ex.org/q=Cities%20and%20towns%20Poland.
+Müller, Anna, 1970- author.	1	https://ex.org/q=M%C3%BCller%2C%20Anna%2C%201970-%20author.
+Rivers Poland Łódź.	1	https://ex.org/q=Rivers%20Poland%20%C5%81%C3%B3d%C5%BA.
+Rivers.	1	https://ex.org/q=Rivers.
+
+query II
+SELECT heading, url = marc_viaf_search_url(heading)
+FROM marc_reconcile_headings(getvariable('utf8'), 'viaf')
+WHERE heading = 'Rivers.';
+----
+Rivers.	true
+
+query I
+SELECT bool_and(url LIKE 'https://id.loc.gov/authorities/names/suggest2?q=%')
+FROM marc_reconcile_headings(getvariable('utf8'), 'idloc');
+----
+true
+
+query I
+SELECT bool_and(url LIKE 'https://www.wikidata.org/w/api.php?%')
+FROM marc_reconcile_headings(getvariable('utf8'), 'wikidata');
+----
+true
+
+# ---------------------------------------------------------------------------
+# Candidate shaping over fixtures faithful to each API's response shape.
+# In production the JSON comes from fetching the queue's URLs (httpfs can
+# read_json a constant http(s) URL); here it comes from test/data/.
+# ---------------------------------------------------------------------------
+
+query III
+SELECT c.label, c.uri, c.token
+FROM (SELECT unnest(marc_idloc_candidates(j)) AS c
+      FROM read_json('test/data/sample_idloc.json', records := false) t(j));
+----
+Twain, Mark, 1835-1910	http://id.loc.gov/authorities/names/n79021164	n79021164
+Twain, Mark, 1835-1910. Adventures of Huckleberry Finn	http://id.loc.gov/authorities/names/n79132705	n79132705
+
+query III
+SELECT c.viaf_id, c.name_type, c.heading
+FROM (SELECT unnest(marc_viaf_candidates(j)) AS c
+      FROM read_json('test/data/sample_viaf.json', records := false) t(j));
+----
+50566653	Personal	Twain, Mark, 1835-1910
+314962361	Corporate	Mark Twain Project
+
+query IIII
+SELECT c.id, c.label, c.description, c.concepturi
+FROM (SELECT unnest(marc_wikidata_candidates(j)) AS c
+      FROM read_json('test/data/sample_wikidata.json', records := false) t(j));
+----
+Q7245	Mark Twain	American writer and humorist (1835-1910)	http://www.wikidata.org/entity/Q7245
+Q28911180	Mark Twain	crater on Mercury	http://www.wikidata.org/entity/Q28911180
+
+# End-to-end matching pattern: pick the candidate whose label NACO-matches
+# the heading being reconciled (marc_naco is the C++ comparison form).
+query I
+SELECT c.token
+FROM (SELECT unnest(marc_idloc_candidates(j)) AS c
+      FROM read_json('test/data/sample_idloc.json', records := false) t(j))
+WHERE marc_naco(c.label) = marc_naco('Twain, Mark, 1835-1910.');
+----
+n79021164

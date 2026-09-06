@@ -37,6 +37,9 @@
 //!   18-34 blanks    material-specific positions left uncoded
 //!   35-37 "   "     language not yet coded; 38 ' ' not modified
 //!   39    'd'       cataloging source: other
+//! The "authority" material is a different animal — Leader/06 'z', the
+//! authority-format 008 layout and an empty 100 $a placeholder heading —
+//! and is documented at NewAuthorityRecord below.
 //!
 //! Generate33X mapping (RDA terms/codes as registered for MARC 336-338):
 //!   content (336) from Leader/06, 008/26 splitting computer files:
@@ -44,14 +47,37 @@
 //!     e,f → cartographic image/cri    g → two-dimensional moving image/tdi
 //!     i → spoken word/spw         j → performed music/prm
 //!     m → computer program/cop when 008/26 = 'b', else computer dataset/cod
+//!   When Leader/06 maps to nothing, the 006 fields (additional material
+//!   characteristics) are consulted in order: the first 006/00 that maps by
+//!   the same table supplies the content term, with 006/09 (the computer-file
+//!   006 mirror of 008/26) splitting program vs dataset for 006/00 = 'm'.
+//!   Two 007-driven content refinements resolve ambiguous leaders:
+//!     Leader/06 a,t + 007/00 'f' (tactile material) → tactile text/tct
+//!     Leader/06 g + 007/00 'g' (projected graphic: slides, transparencies,
+//!       filmstrips) → still image/sti (leader g alone reads as moving image)
 //!   media (337) from the first 007/00:
 //!     s → audio/s   v → video/v   c → computer/c
-//!     g → projected/g   h → microform/h
+//!     g,m → projected/g   h → microform/h   f → unmediated/n (tactile)
 //!     no 007 at all: unmediated/n, only for print-shaped Leader/06 (a t c d e f)
-//!   carrier (338) from the first 007/00-01:
-//!     s → audio disc/sd (the common case; 007/01 not consulted)
-//!     v → videodisc/vd
-//!     c → online resource/cr when 007/01 = 'r', else computer disc/cd
+//!   carrier (338) from the first 007/00-01 (007/01 is the SMD):
+//!     s → e audio cylinder/se, g audio cartridge/sg, i sound-track reel/si,
+//!         q audio roll/sq, s audiocassette/ss, t audiotape reel/st,
+//!         w audio wire reel/sw; 'd' and anything else → audio disc/sd
+//!     v → c video cartridge/vc, f videocassette/vf, r videotape reel/vr;
+//!         'd' and anything else → videodisc/vd
+//!     c → r online resource/cr, a computer tape cartridge/ch,
+//!         b computer chip cartridge/cb, c computer disc cartridge/ce,
+//!         f computer tape cassette/cf, h computer tape reel/ca,
+//!         k computer card/ck; j/m/o and anything else → computer disc/cd
+//!     g → c filmstrip cartridge/gc, d filmslip/gd, f,o filmstrip/gf,
+//!         s slide/gs, t overhead transparency/gt; else unset
+//!     m → c film cartridge/mc, f film cassette/mf, o film roll/mo,
+//!         r film reel/mr; else unset
+//!     h → a aperture card/ha, b microfilm cartridge/hb,
+//!         c microfilm cassette/hc, d microfilm reel/hd, e microfiche/he,
+//!         f microfiche cassette/hf, g microopaque/hg, h microfilm slip/hh,
+//!         j microfilm roll/hj; else unset
+//!     f → volume/nc (tactile volumes)
 //!     no 007 and print-shaped Leader/06: volume/nc
 //!   Anything else leaves that slot unset — no field is added for it.
 //!
@@ -177,7 +203,73 @@ RecordRank RankRecord(const Record &rec) {
 	return rank;
 }
 
+namespace {
+
+// Authority-format skeleton: Leader/06 'z', 07-08 undefined, Leader/17 'o'
+// (incomplete authority record — the authority format's own encoding
+// levels, not the bibliographic ones), and a 40-position authority 008:
+//   00-05 blanks   date entered — placeholder for the caller/ILS to fill
+//   06    'n'      direct/indirect geographic subdivision: not applicable
+//   07    'n'      romanization scheme: not applicable
+//   08    ' '      language of catalog: no information
+//   09    'a'      kind of record: established heading
+//   10    'z'      descriptive cataloging rules: other (pair with 040 $e)
+//   11    'n'      subject heading system/thesaurus: not applicable
+//   12-13 'n' 'n'  type of series / numbered series: not applicable
+//   14-16 'a'/'a'/'b'  heading use: main-or-added yes, subject yes,
+//                  series no — the common name/subject-heading profile
+//   17    'n'      type of subject subdivision: not applicable
+//   18-27 blanks   undefined
+//   28    ' '      type of government agency: not a government agency
+//   29    'n'      reference evaluation: not applicable (no 4XX/5XX yet)
+//   30    ' '      undefined
+//   31    'a'      record can be used in update-in-process terms
+//   32    'n'      undifferentiated personal name: not applicable
+//   33    'd'      level of establishment: preliminary (it is a skeleton)
+//   34-38 blanks   undefined / not modified
+//   39    'd'      cataloging source: other
+// The placeholder heading is an empty 100 $a with blank indicators — the
+// same fill-it-in convention as the bibliographic templates' empty 245.
+Record NewAuthorityRecord() {
+	Record rec;
+	rec.leader = "00000nz  a2200000o  4500";
+
+	Field f008;
+	f008.tag = "008";
+	f008.is_control = true;
+	f008.control_value.assign(40, ' ');
+	f008.control_value[6] = 'n';
+	f008.control_value[7] = 'n';
+	f008.control_value[9] = 'a';
+	f008.control_value[10] = 'z';
+	f008.control_value[11] = 'n';
+	f008.control_value[12] = 'n';
+	f008.control_value[13] = 'n';
+	f008.control_value[14] = 'a';
+	f008.control_value[15] = 'a';
+	f008.control_value[16] = 'b';
+	f008.control_value[17] = 'n';
+	f008.control_value[29] = 'n';
+	f008.control_value[31] = 'a';
+	f008.control_value[32] = 'n';
+	f008.control_value[33] = 'd';
+	f008.control_value[39] = 'd';
+
+	Field f100;
+	f100.tag = "100";
+	f100.subfields.push_back({"a", ""});
+
+	rec.fields.push_back(std::move(f008));
+	rec.fields.push_back(std::move(f100));
+	return rec;
+}
+
+} // namespace
+
 Record NewRecord(std::string_view material) {
+	if (material == "authority") {
+		return NewAuthorityRecord();
+	}
 	char type, level;
 	if (material == "book") {
 		type = 'a', level = 'm';
@@ -193,7 +285,7 @@ Record NewRecord(std::string_view material) {
 		type = 'm', level = 'm';
 	} else {
 		throw MarcError("unknown material \"" + std::string(material) +
-		                "\"; valid: book, serial, video, map, music, electronic");
+		                "\"; valid: book, serial, video, map, music, electronic, authority");
 	}
 
 	Record rec;
@@ -289,9 +381,12 @@ Record RdaExpandAbbreviations(const Record &rec) {
 Record Generate33X(const Record &rec) {
 	char type = rec.leader.size() > 6 ? rec.leader[6] : '\0';
 	std::string f007, f008;
+	std::vector<std::string> f006s;
 	bool have336 = false, have337 = false, have338 = false;
 	for (auto &f : rec.fields) {
-		if (f.is_control && f.tag == "007" && f007.empty()) {
+		if (f.is_control && f.tag == "006") {
+			f006s.push_back(f.control_value);
+		} else if (f.is_control && f.tag == "007" && f007.empty()) {
 			f007 = f.control_value;
 		} else if (f.is_control && f.tag == "008" && f008.empty()) {
 			f008 = f.control_value;
@@ -308,64 +403,217 @@ Record Generate33X(const Record &rec) {
 		const char *term = nullptr;
 		const char *code = nullptr;
 	};
-	Term content, media, carrier;
-	switch (type) {
-	case 'a':
-	case 't':
-		content = {"text", "txt"};
-		break;
-	case 'c':
-	case 'd':
-		content = {"notated music", "ntm"};
-		break;
-	case 'e':
-	case 'f':
-		content = {"cartographic image", "cri"};
-		break;
-	case 'g':
-		content = {"two-dimensional moving image", "tdi"};
-		break;
-	case 'i':
-		content = {"spoken word", "spw"};
-		break;
-	case 'j':
-		content = {"performed music", "prm"};
-		break;
-	case 'm':
-		if (f008.size() > 26 && f008[26] == 'b') {
-			content = {"computer program", "cop"};
-		} else {
-			content = {"computer dataset", "cod"};
+
+	// Content for one material-type code (Leader/06 or 006/00); `program`
+	// splits the computer-file case ('b' in 008/26, mirrored at 006/09).
+	auto content_for = [](char t, bool program) -> Term {
+		switch (t) {
+		case 'a':
+		case 't':
+			return {"text", "txt"};
+		case 'c':
+		case 'd':
+			return {"notated music", "ntm"};
+		case 'e':
+		case 'f':
+			return {"cartographic image", "cri"};
+		case 'g':
+			return {"two-dimensional moving image", "tdi"};
+		case 'i':
+			return {"spoken word", "spw"};
+		case 'j':
+			return {"performed music", "prm"};
+		case 'm':
+			return program ? Term {"computer program", "cop"} : Term {"computer dataset", "cod"};
+		default:
+			return {};
 		}
-		break;
-	default:
-		break;
+	};
+
+	Term content = content_for(type, f008.size() > 26 && f008[26] == 'b');
+	if (!content.term) {
+		// Leader alone is ambiguous ('p' mixed, 'o' kit, ...): fall back to
+		// the additional-material-characteristics 006 fields, first mapped
+		// 006/00 wins.
+		for (auto &c6 : f006s) {
+			if (c6.empty()) {
+				continue;
+			}
+			Term t = content_for(c6[0], c6.size() > 9 && c6[9] == 'b');
+			if (t.term) {
+				content = t;
+				break;
+			}
+		}
 	}
 
 	bool printish =
 	    type == 'a' || type == 't' || type == 'c' || type == 'd' || type == 'e' || type == 'f';
+	char smd = f007.size() > 1 ? f007[1] : '\0'; // 007/01, the specific material designation
+	Term media, carrier;
 	switch (f007.empty() ? '\0' : f007[0]) {
 	case 's':
 		media = {"audio", "s"};
-		carrier = {"audio disc", "sd"};
+		switch (smd) {
+		case 'e':
+			carrier = {"audio cylinder", "se"};
+			break;
+		case 'g':
+			carrier = {"audio cartridge", "sg"};
+			break;
+		case 'i':
+			carrier = {"sound-track reel", "si"};
+			break;
+		case 'q':
+			carrier = {"audio roll", "sq"};
+			break;
+		case 's':
+			carrier = {"audiocassette", "ss"};
+			break;
+		case 't':
+			carrier = {"audiotape reel", "st"};
+			break;
+		case 'w':
+			carrier = {"audio wire reel", "sw"};
+			break;
+		default: // 'd' and anything unrecognized: the common case
+			carrier = {"audio disc", "sd"};
+			break;
+		}
 		break;
 	case 'v':
 		media = {"video", "v"};
-		carrier = {"videodisc", "vd"};
+		switch (smd) {
+		case 'c':
+			carrier = {"video cartridge", "vc"};
+			break;
+		case 'f':
+			carrier = {"videocassette", "vf"};
+			break;
+		case 'r':
+			carrier = {"videotape reel", "vr"};
+			break;
+		default: // 'd' and anything unrecognized
+			carrier = {"videodisc", "vd"};
+			break;
+		}
 		break;
 	case 'c':
 		media = {"computer", "c"};
-		if (f007.size() > 1 && f007[1] == 'r') {
+		switch (smd) {
+		case 'r':
 			carrier = {"online resource", "cr"};
-		} else {
+			break;
+		case 'a':
+			carrier = {"computer tape cartridge", "ch"};
+			break;
+		case 'b':
+			carrier = {"computer chip cartridge", "cb"};
+			break;
+		case 'c':
+			carrier = {"computer disc cartridge", "ce"};
+			break;
+		case 'f':
+			carrier = {"computer tape cassette", "cf"};
+			break;
+		case 'h':
+			carrier = {"computer tape reel", "ca"};
+			break;
+		case 'k':
+			carrier = {"computer card", "ck"};
+			break;
+		default: // j/m/o (disk shapes) and anything unrecognized
 			carrier = {"computer disc", "cd"};
+			break;
 		}
 		break;
-	case 'g':
+	case 'g': // projected graphic: slides, transparencies, filmstrips
 		media = {"projected", "g"};
+		switch (smd) {
+		case 'c':
+			carrier = {"filmstrip cartridge", "gc"};
+			break;
+		case 'd':
+			carrier = {"filmslip", "gd"};
+			break;
+		case 'f':
+		case 'o':
+			carrier = {"filmstrip", "gf"};
+			break;
+		case 's':
+			carrier = {"slide", "gs"};
+			break;
+		case 't':
+			carrier = {"overhead transparency", "gt"};
+			break;
+		default:
+			break;
+		}
+		if (type == 'g') {
+			// Leader g alone reads as moving image; a projected-graphic 007
+			// says the projected images do not move.
+			content = {"still image", "sti"};
+		}
+		break;
+	case 'm': // motion picture
+		media = {"projected", "g"};
+		switch (smd) {
+		case 'c':
+			carrier = {"film cartridge", "mc"};
+			break;
+		case 'f':
+			carrier = {"film cassette", "mf"};
+			break;
+		case 'o':
+			carrier = {"film roll", "mo"};
+			break;
+		case 'r':
+			carrier = {"film reel", "mr"};
+			break;
+		default:
+			break;
+		}
 		break;
 	case 'h':
 		media = {"microform", "h"};
+		switch (smd) {
+		case 'a':
+			carrier = {"aperture card", "ha"};
+			break;
+		case 'b':
+			carrier = {"microfilm cartridge", "hb"};
+			break;
+		case 'c':
+			carrier = {"microfilm cassette", "hc"};
+			break;
+		case 'd':
+			carrier = {"microfilm reel", "hd"};
+			break;
+		case 'e':
+			carrier = {"microfiche", "he"};
+			break;
+		case 'f':
+			carrier = {"microfiche cassette", "hf"};
+			break;
+		case 'g':
+			carrier = {"microopaque", "hg"};
+			break;
+		case 'h':
+			carrier = {"microfilm slip", "hh"};
+			break;
+		case 'j':
+			carrier = {"microfilm roll", "hj"};
+			break;
+		default:
+			break;
+		}
+		break;
+	case 'f': // tactile material: perceived by touch, no mediating device
+		media = {"unmediated", "n"};
+		carrier = {"volume", "nc"};
+		if (type == 'a' || type == 't') {
+			content = {"tactile text", "tct"};
+		}
 		break;
 	case '\0':
 		if (printish) {

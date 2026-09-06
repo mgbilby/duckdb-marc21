@@ -1,0 +1,238 @@
+# name: test/sql/marc_ils.test
+# description: ILS connector macros (Alma / Koha / WorldShare / FOLIO SRS) and their reader paths
+# group: [marc]
+
+require marc21
+
+# All ILS URL-builder macros are registered.  The builders compose live HTTP
+# URLs (LOAD httpfs), so the tests below exercise each macro's underlying
+# reader path against saved response fixtures instead.
+query I
+SELECT count(DISTINCT function_name) FROM duckdb_functions()
+WHERE function_name IN ('marc_readalma', 'marc_readalma_bibs', 'marc_readalma_sru',
+                        'marc_readkoha', 'marc_readkoha_public', 'marc_readkoha_opac',
+                        'marc_readworldshare', 'marc_readfolio_srs', 'marc_readfolio_record');
+----
+9
+
+# --- Alma (marc_readalma / marc_readalma_bibs path: read_marcxml) ----------
+# The <bib> envelope is transparent: one record, only MARC fields surface.
+query III
+SELECT count(DISTINCT record_no), count(DISTINCT tag), count(*)
+FROM read_marcxml('test/data/sample_alma_bib.xml');
+----
+1	8	12
+
+query II
+SELECT control_number, value FROM read_marcxml('test/data/sample_alma_bib.xml')
+WHERE tag = '245' AND code = 'a';
+----
+9939332839702836	Alma envelope record /
+
+# Envelope metadata elements (<title>, <isbn>, ...) duplicate record values
+# but contribute no rows of their own.
+query II
+SELECT count(*) FILTER (WHERE value = 'Alma envelope record /'),
+       count(*) FILTER (WHERE value = '9780000000101')
+FROM read_marcxml('test/data/sample_alma_bib.xml');
+----
+1	1
+
+# --- Koha (marc_readkoha* path: read_marcxml) ------------------------------
+# Bare MARCXML record; Koha's 999 $c/$d biblionumber is reachable like any
+# other field.
+query III
+SELECT control_number,
+       marc_subfield(fields, '999', 'c'),
+       marc_subfield(fields, '245', 'a')
+FROM marc_readnestedxml('test/data/sample_koha.xml');
+----
+70	70	Koha biblio record /
+
+# --- WorldShare (marc_readworldshare path: read_marcxml) -------------------
+# 001/003 carry the prefixed OCLC number; marc_oclc strips the prefix for
+# joining against local 035 $a values.
+query IIII
+SELECT control_number,
+       marc_oclc(control_number),
+       marc_control_field(fields, '003'),
+       marc_subfield(fields, '245', 'a')
+FROM marc_readnestedxml('test/data/sample_worldshare.xml');
+----
+on1000000303	1000000303	OCoLC	WorldShare metadata record /
+
+# --- FOLIO SRS (marc_readfolio_srs path: read_marcjson) --------------------
+# The formatted source-record envelope (parsedRecord -> content) unwraps.
+query II
+SELECT control_number, value FROM read_marcjson('test/data/sample_folio_srs.json')
+WHERE tag = '245' AND code = 'a';
+----
+in00000000404	FOLIO source record /
+
+# FOLIO's 999 ff linkage: $s is the SRS record UUID, $i the Instance UUID.
+query III
+SELECT ind1 || ind2,
+       max(value) FILTER (WHERE code = 's'),
+       max(value) FILTER (WHERE code = 'i')
+FROM read_marcjson('test/data/sample_folio_srs.json')
+WHERE tag = '999' GROUP BY ind1, ind2;
+----
+ff	c9f30e1d-2a44-4a5f-9b8e-6f2d1e0a7b41	5b1eb450-ff9a-4d02-b50a-6c0f8b7cf02e
+
+# Round-trip prep: a record fetched from SRS still carries FOLIO's 999 ff,
+# which marc_folio_check flags before re-import.
+query I
+WITH f AS (
+    SELECT record_no, field_no,
+           any_value(leader) AS leader,
+           any_value(tag) AS tag, any_value(ind1) AS ind1, any_value(ind2) AS ind2,
+           any_value(value) FILTER (WHERE code IS NULL) AS control_value,
+           CASE WHEN count(code) = 0 THEN NULL
+                ELSE list(struct_pack(code := code, value := value) ORDER BY subfield_no)
+                         FILTER (WHERE code IS NOT NULL)
+           END AS subfields
+    FROM read_marcjson('test/data/sample_folio_srs.json')
+    GROUP BY record_no, field_no
+), r AS (
+    SELECT any_value(leader) AS leader,
+           list(struct_pack(tag := tag, ind1 := ind1, ind2 := ind2,
+                            value := control_value, subfields := subfields)
+                ORDER BY field_no) AS fields
+    FROM f GROUP BY record_no
+)
+SELECT marc_folio_check(leader, fields)[1] FROM r;
+----
+999 ff present: FOLIO reserves 999 ff for its own instance/SRS identifiers
+
+# --- Alma write-back (offline half) ----------------------------------------
+# Everything below runs without a network and without the http_request
+# extension: the URL builder, header helper and <bib> body builder are plain
+# string macros, and marc_alma_update_bib is exercised through a local echo
+# stand-in for http_put.  A live PUT (LOAD http_request against a real Alma
+# sandbox) is documented, not tested — see docs/connectors/alma.md.
+
+query I
+SELECT count(DISTINCT function_name) FROM duckdb_functions()
+WHERE function_name IN ('marc_alma_xml_escape', 'marc_alma_bib_body',
+                        'marc_alma_put_url', 'marc_alma_headers',
+                        'marc_alma_sql_quote', 'marc_alma_put_sql',
+                        'marc_alma_update_bib');
+----
+7
+
+# URL builder: documented update parameters, defaults off.
+query I
+SELECT marc_alma_put_url('https://api-na.hosted.exlibrisgroup.com', '9939332839702836');
+----
+https://api-na.hosted.exlibrisgroup.com/almaws/v1/bibs/9939332839702836?validate=false&stale_version_check=false
+
+# ... options on, and the query-parameter key form is url-encoded.
+query I
+SELECT marc_alma_put_url('https://api-eu.hosted.exlibrisgroup.com', '99123',
+                         apikey := 'l8xx/=?', validate := true,
+                         stale_version_check := true);
+----
+https://api-eu.hosted.exlibrisgroup.com/almaws/v1/bibs/99123?validate=true&stale_version_check=true&apikey=l8xx%2F%3D%3F
+
+# Header helper: Alma's documented 'Authorization: apikey {key}' form; the
+# Authorization entry disappears with a NULL key.
+query III
+SELECT marc_alma_headers('l8xxKEY')['Authorization'],
+       marc_alma_headers('l8xxKEY')['Accept'],
+       cardinality(marc_alma_headers(NULL));
+----
+apikey l8xxKEY	application/xml	1
+
+# XML escaping: all five characters, in element-content and attribute uses.
+query I
+SELECT marc_alma_xml_escape('a&b<c>d"e' || chr(39) || 'f');
+----
+a&amp;b&lt;c&gt;d&quot;e&apos;f
+
+# The body builder: envelope shape, control vs data fields, blank-indicator
+# defaulting, and escaping of subfield values.
+query I
+SELECT marc_alma_bib_body('01234cam a2200000 a 4500', [
+    {tag: '001', ind1: NULL, ind2: NULL, value: '9939332839702836', subfields: NULL},
+    {tag: '245', ind1: '1', ind2: '0', value: NULL,
+     subfields: [{code: 'a', value: 'Ampersands & <angles> :'},
+                 {code: 'b', value: 'a "quoted" title with ' || chr(39) || 'apostrophes' || chr(39) || ' /'}]},
+    {tag: '260', ind1: NULL, ind2: NULL, value: NULL,
+     subfields: [{code: 'b', value: 'Pub'}]}]);
+----
+<bib><record><leader>01234cam a2200000 a 4500</leader><controlfield tag="001">9939332839702836</controlfield><datafield tag="245" ind1="1" ind2="0"><subfield code="a">Ampersands &amp; &lt;angles&gt; :</subfield><subfield code="b">a &quot;quoted&quot; title with &apos;apostrophes&apos; /</subfield></datafield><datafield tag="260" ind1=" " ind2=" "><subfield code="b">Pub</subfield></datafield></record></bib>
+
+# Empty fields list still yields a well-formed envelope.
+query I
+SELECT marc_alma_bib_body('LDR', []::STRUCT(tag VARCHAR, ind1 VARCHAR, ind2 VARCHAR,
+                                            value VARCHAR,
+                                            subfields STRUCT(code VARCHAR, value VARCHAR)[])[]);
+----
+<bib><record><leader>LDR</leader></record></bib>
+
+# The deferred statement: self-contained SQL text, values embedded as quoted
+# literals (quotes doubled — the key here contains one).
+query I
+SELECT marc_alma_put_sql('https://x', '99', 'k' || chr(39) || 'y',
+                         '<bib><record><leader>LDR</leader></record></bib>');
+----
+SELECT status, content_type, decode(body) AS body FROM http_put('https://x/almaws/v1/bibs/99?validate=false&stale_version_check=false', headers := MAP {'Accept': 'application/xml', 'Authorization': 'apikey k''y'}, body := encode('<bib><record><leader>LDR</leader></record></bib>'), content_type := 'application/xml')
+
+# NULL key: no Authorization entry in the deferred statement either.
+query I
+SELECT marc_alma_put_sql('https://x', '99', NULL, '<bib/>') NOT LIKE '%Authorization%';
+----
+true
+
+# marc_alma_update_bib defers its http_put reference to use time, so with no
+# http_request loaded the macro exists but a call names the missing function.
+statement error
+SELECT * FROM marc_alma_update_bib('https://x', '99', 'k', '<bib/>');
+----
+http_put
+
+# Round trip through an echo stand-in with http_put's table-function shape
+# (same named parameters and output columns as http_request registers):
+# proves the composed statement parses, the body/headers/content type pass
+# through encode/decode unchanged, and the macro's output columns.
+statement ok
+CREATE MACRO http_put(url,
+                      headers := MAP {'': ''},
+                      body := encode(''),
+                      content_type := 'application/octet-stream') AS TABLE
+SELECT 200 AS status,
+       content_type AS content_type,
+       octet_length(body)::BIGINT AS content_length,
+       headers AS headers,
+       []::STRUCT(name VARCHAR, value VARCHAR)[] AS cookies,
+       body AS body;
+
+# Fetch-edit-put, offline: the Alma fixture supplies the record, the body is
+# built in an ordinary SELECT into a variable (table-function arguments do
+# not take subqueries or lambdas), and the stand-in echoes the PUT body.
+statement ok
+SET VARIABLE alma_body = (
+    SELECT marc_alma_bib_body(leader, marc_set_subfield(fields, '040', 'd', 'MyORG'))
+    FROM marc_readnestedxml('test/data/sample_alma_bib.xml'));
+
+query III
+SELECT status,
+       content_type,
+       body = getvariable('alma_body')
+FROM marc_alma_update_bib('https://api-na.hosted.exlibrisgroup.com',
+                          '9939332839702836', 'l8xxKEY',
+                          getvariable('alma_body'));
+----
+200	application/xml	true
+
+# The echoed body carries the fixture's edited record: envelope, leader, the
+# fetched 005 (what stale_version_check compares), and the fixture's 245.
+query IIII
+SELECT getvariable('alma_body') LIKE '<bib><record><leader>%',
+       getvariable('alma_body') LIKE '%</record></bib>',
+       position('<controlfield tag="005">20240505103015.0</controlfield>'
+                IN getvariable('alma_body')) > 0,
+       position('<datafield tag="245" ind1="1" ind2="0"><subfield code="a">Alma envelope record /</subfield>'
+                IN getvariable('alma_body')) > 0;
+----
+true	true	true	true

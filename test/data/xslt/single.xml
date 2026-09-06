@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- single bare marc:record document element (no collection wrapper) -->
+<record xmlns="http://www.loc.gov/MARC21/slim">
+  <leader>00000ngm a2200000 a 4500</leader>
+  <controlfield tag="001">xslt-fx-solo</controlfield>
+  <controlfield tag="008">150220s2014    fr 062            vlfre d</controlfield>
+  <datafield tag="245" ind1="0" ind2="3">
+    <subfield code="a">Le voyage extraordinaire /</subfield>
+    <subfield code="c">réalisé par Élise Beaumont.</subfield>
+  </datafield>
+  <datafield tag="264" ind1=" " ind2="1">
+    <subfield code="a">Paris :</subfield>
+    <subfield code="b">Ciné-Monde,</subfield>
+    <subfield code="c">[2014]</subfield>
+  </datafield>
+  <datafield tag="300" ind1=" " ind2=" ">
+    <subfield code="a">1 videodisc (62 min.) :</subfield>
+    <subfield code="b">sound, color ;</subfield>
+    <subfield code="c">12 cm</subfield>
+  </datafield>
+  <datafield tag="511" ind1="0" ind2=" ">
+    <subfield code="a">Narrated by Élise Beaumont.</subfield>
+  </datafield>
+  <datafield tag="655" ind1=" " ind2="7">
+    <subfield code="a">Documentary films.</subfield>
+    <subfield code="2">lcgft</subfield>
+  </datafield>
+</record>

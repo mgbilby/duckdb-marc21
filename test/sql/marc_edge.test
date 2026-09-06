@@ -1,0 +1,191 @@
+# name: test/sql/marc_edge.test
+# description: Conformance edge corpus (test/data/edge/) — multi-script MARC-8,
+#              880 linkage, lying leader, truncated final record, empty
+#              subfields and out-of-order tags. Asserts current behavior.
+# group: [marc]
+
+require marc21
+
+# ---------------------------------------------------------------------------
+# (a) MARC-8 multi-script escapes: Cyrillic, Greek and CJK written with
+#     ENCODING 'marc8' escape designations, decoded back to NFC UTF-8.
+# ---------------------------------------------------------------------------
+
+statement ok
+SET VARIABLE ms = 'test/data/edge/multiscript_marc8.mrc';
+
+query I
+SELECT marc_encoding_scheme(leader) FROM read_marc(getvariable('ms'));
+----
+marc8
+
+query I
+SELECT marc_subfield(fields, '100', 'a') FROM read_marc(getvariable('ms'));
+----
+Чехов, Антон Павлович,
+
+query I
+SELECT marc_subfield(fields, '246', 'a') FROM read_marc(getvariable('ms'));
+----
+Ελληνικά γράμματα
+
+# One subfield mixing Cyrillic, Greek and CJK across escape switches
+query I
+SELECT marc_subfield(fields, '245', 'b') FROM read_marc(getvariable('ms'));
+----
+комедия / αβγδ / 桜の園.
+
+query I
+SELECT marc_subfield(fields, '500', 'a') FROM read_marc(getvariable('ms'));
+----
+Mixed Latin, Кириллица, Ελληνικά and 漢字 in one note.
+
+# The bytes on disk really are MARC-8 (the ESC ( N Basic Cyrillic designation)
+query I
+SELECT position(chr(27) || '(N' IN decode(content, 'ignore')) > 0
+FROM read_blob(getvariable('ms'));
+----
+true
+
+# Explicit encoding='marc8' agrees with autodetection
+query I
+SELECT a.fields = b.fields
+FROM read_marc(getvariable('ms')) a,
+     read_marc(getvariable('ms'), encoding := 'marc8') b;
+----
+true
+
+# ---------------------------------------------------------------------------
+# (b) 880 linkage pair: one correctly linked 245<->880, one 880 whose $6
+#     points at an occurrence that does not exist. Both parse; $6 preserved.
+# ---------------------------------------------------------------------------
+
+statement ok
+SET VARIABLE lk = 'test/data/edge/linkage_880.mrc';
+
+query II
+SELECT control_number, marc_subfield(fields, '880', '6')
+FROM read_marc(getvariable('lk')) ORDER BY record_no;
+----
+edge-880-linked	245-01/$1
+edge-880-dangling	246-99
+
+query I
+SELECT marc_subfield(fields, '245', '6') FROM read_marc(getvariable('lk'))
+WHERE control_number = 'edge-880-linked';
+----
+880-01
+
+query I
+SELECT marc_subfield(fields, '880', 'a') FROM read_marc(getvariable('lk'))
+WHERE control_number = 'edge-880-linked';
+----
+日本の歴史 /
+
+# The dangling 880 is not dropped or reattached — it survives verbatim
+query I
+SELECT marc_subfield(fields, '880', 'a') FROM read_marc(getvariable('lk'))
+WHERE control_number = 'edge-880-dangling';
+----
+孤立した代替表記
+
+# ---------------------------------------------------------------------------
+# (c) Lying leader: Leader/00-04 claims 00190 bytes but the record is 111.
+#     The parser trusts the field/record terminators, so the record still
+#     reads; the leader is preserved verbatim, lie included.
+# ---------------------------------------------------------------------------
+
+statement ok
+SET VARIABLE lie = 'test/data/edge/lying_leader.mrc';
+
+query II
+SELECT control_number, substr(leader, 1, 5) FROM read_marc(getvariable('lie'));
+----
+edge-lying-leader	00190
+
+query I
+SELECT marc_subfield(fields, '245', 'a') FROM read_marc(getvariable('lie'));
+----
+The record that lies about its length.
+
+# read_marc_raw agrees: no error is charged to this record
+query II
+SELECT record_no, error FROM read_marc_raw(getvariable('lie'));
+----
+1	NULL
+
+# ---------------------------------------------------------------------------
+# (d) Truncated final record: record 1 complete, record 2 cut mid-directory
+#     with no terminators. Strict read errors; read_marc_raw and
+#     ignore_errors recover the good record.
+# ---------------------------------------------------------------------------
+
+statement ok
+SET VARIABLE tr = 'test/data/edge/truncated.mrc';
+
+statement error
+SELECT count(*) FROM read_marc(getvariable('tr'));
+----
+record 2: no directory terminator
+
+query II
+SELECT record_no, error FROM read_marc_raw(getvariable('tr')) ORDER BY record_no;
+----
+1	NULL
+2	no directory terminator
+
+query I
+SELECT control_number FROM read_marc(getvariable('tr'), ignore_errors := true);
+----
+edge-trunc-ok
+
+# ---------------------------------------------------------------------------
+# (e) Empty subfield values and out-of-order tags: both survive the binary
+#     round trip byte-for-byte; structural validation does not flag them,
+#     while the bibliographic rulepack still notices the missing 008.
+# ---------------------------------------------------------------------------
+
+statement ok
+SET VARIABLE odd = 'test/data/edge/odd_fields.mrc';
+
+# Field order is preserved exactly as written: 500 before 245 before 100
+query I
+SELECT list_aggregate(list_transform(fields, lambda f: f.tag), 'string_agg', ',')
+FROM read_marc(getvariable('odd'));
+----
+001,500,245,100,650
+
+# Empty subfield values come back as empty strings, not NULL and not dropped
+query III
+SELECT marc_subfields(fields, '245', 'b') = [''],
+       marc_subfields(fields, '100', 'a') = [''],
+       marc_subfields(fields, '650', 'x') = ['']
+FROM read_marc(getvariable('odd'));
+----
+true	true	true
+
+# marc_subfield (first value) returns the empty string itself
+query I
+SELECT marc_subfield(fields, '245', 'b') = '' FROM read_marc(getvariable('odd'));
+----
+true
+
+# Structural validation accepts the record; the bib rulepack flags the 008
+query II
+SELECT len(marc_validate(leader, fields)),
+       list_contains(marc_validate_format(leader, fields), '008: required field missing')
+FROM read_marc(getvariable('odd'));
+----
+0	true
+
+# And the oddities survive a write/read round trip unchanged
+statement ok
+COPY (SELECT leader, fields FROM read_marc(getvariable('odd')))
+TO '__TEST_DIR__/odd_roundtrip.mrc' (FORMAT marc);
+
+query I
+SELECT a.fields = b.fields
+FROM read_marc(getvariable('odd')) a
+JOIN read_marc('__TEST_DIR__/odd_roundtrip.mrc') b USING (record_no);
+----
+true

@@ -1,0 +1,204 @@
+# name: test/sql/marc_editing2.test
+# description: extended editing scalars (move/copy/case/build/remove-where), clustering keys, and the editing macros (marc_cluster_headings, marc_264_from_260, marc_check_urls)
+# group: [marc]
+
+require marc21
+
+statement ok
+SET VARIABLE utf8 = 'test/data/sample_utf8.mrc';
+
+# ============================================================================
+# PART 1 — C++ scalars (marc_cluster_scalars.cpp).  POST-MERGE ONLY: these
+# functions exist once src/core/cluster.cpp and src/marc_cluster_scalars.cpp
+# are compiled into the extension.  Their semantics are pinned standalone by
+# test/cpp/cluster_test.cpp and test/cpp/edit_test.cpp.
+# ============================================================================
+
+# Fingerprint key: fold, lowercase, strip punctuation, sort/de-dupe tokens.
+query III
+SELECT marc_fingerprint('  Cruise, Tom '),
+       marc_fingerprint('TOM cruise!!') = marc_fingerprint('Cruise, Tom'),
+       marc_fingerprint('Gödel, Escher, Bach');
+----
+cruise tom	true	bach escher godel
+
+# Diacritic folding uses the NACO engine (Ł→L; hyphens delete with no space).
+query II
+SELECT marc_fingerprint('Łódź'), marc_fingerprint('1835-1910');
+----
+lodz	18351910
+
+# N-gram fingerprint: sorted unique n-grams of the space-less fold; a cleaned
+# string shorter than n comes back whole.
+query III
+SELECT marc_ngram_fingerprint('banana', 2),
+       marc_ngram_fingerprint('banana', 1),
+       marc_ngram_fingerprint('ab', 3);
+----
+anbana	abn	ab
+
+statement error
+SELECT marc_ngram_fingerprint('abc', 0);
+----
+at least 1
+
+# marc_move_field renumbers in place (order kept, indicators kept).
+query I
+SELECT list_transform(marc_move_field(fields, '650', '690'), lambda f: f.tag)
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+[001, 003, 008, 020, 100, 245, 690, 690, 690]
+
+# Moving across the control/data boundary is refused.
+statement error
+SELECT marc_move_field(fields, '245', '007')
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+control/data
+
+# marc_copy_field keeps the original and inserts the copy in tag order.
+query II
+SELECT list_transform(marc_copy_field(fields, '245', '246'), lambda f: f.tag),
+       marc_subfield(marc_copy_field(fields, '245', '246'), '246', 'a')
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+[001, 003, 008, 020, 100, 245, 246, 650, 650, 650]	Łódź and the river :
+
+# marc_change_case: upper/lower cover ASCII + Latin-1 letters only — ó maps
+# to Ó but Ł and ź (Latin Extended-A) deliberately pass through unchanged.
+query I
+SELECT marc_subfield(marc_change_case(fields, '245', 'a', 'upper'), '245', 'a')
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+ŁÓDź AND THE RIVER :
+
+# Title mode: word-initial upper, rest lower; '*' hits every subfield.
+query II
+SELECT marc_subfield(marc_change_case(fields, '650', 'a', 'title'), '650', 'a'),
+       marc_subfield(marc_change_case(fields, '245', '*', 'title'), '245', 'b')
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+Rivers	A Study /
+
+statement error
+SELECT marc_change_case(fields, '245', 'a', 'sideways')
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+upper, lower or title
+
+# marc_build_field: breaker-style template, {tag$code} filled from the first
+# matching subfield, inserted in tag order.
+query II
+SELECT list_transform(marc_build_field(fields, '=953  \\$a{245$a} / {100$a}'),
+                      lambda f: f.tag)[10],
+       marc_subfield(marc_build_field(fields, '=953  \\$a{245$a} / {100$a}'), '953', 'a')
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+953	Łódź and the river : / Müller, Anna,
+
+statement error
+SELECT marc_build_field(fields, 'not a field line')
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+one breaker field line
+
+# marc_remove_fields_where: drop fields whose $code value matches the regex.
+query I
+SELECT list_transform(marc_remove_fields_where(fields, '6..', 'a', '^Rivers'),
+                      lambda f: f.tag)
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+[001, 003, 008, 020, 100, 245, 650]
+
+statement error
+SELECT marc_remove_fields_where(fields, '650', 'a', '(unclosed')
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+regex
+
+# ============================================================================
+# PART 2 — SQL macros (src/macros/editing.sql).  The macro SQL itself was
+# validated pre-merge against DuckDB 1.5.5 with stand-in scalars; the
+# marc_cluster_headings assertions below still need the real marc_fingerprint
+# / marc_ngram_fingerprint, so this whole file remains post-merge.
+# ============================================================================
+
+# marc_264_from_260 — build a 260 on the bare record 3, convert, and check
+# the RDA pair: 264 _1 keeps $a$b and the © stripped $c, 264 _4 gets ©year.
+statement ok
+CREATE VIEW conv AS
+SELECT marc_264_from_260(marc_add_local(fields, '260', ' ', ' ',
+           ['a', 'b', 'c'], ['New York :', 'Foo Press,', '2002, ©2002.'])) AS f2
+FROM read_marc(getvariable('utf8')) WHERE record_no = 3;
+
+query I
+SELECT list_transform(f2, lambda f: f.tag || coalesce(f.ind2, '')) FROM conv;
+----
+[001, 2454, 2641, 2644]
+
+query III
+SELECT g.subfields[1].value, g.subfields[2].value, g.subfields[3].value
+FROM (SELECT unnest(f2) AS g FROM conv) WHERE g.tag = '264' AND g.ind2 = '1';
+----
+New York :	Foo Press,	2002
+
+query I
+SELECT g.subfields[1].value
+FROM (SELECT unnest(f2) AS g FROM conv) WHERE g.tag = '264' AND g.ind2 = '4';
+----
+©2002
+
+# A record without a 260 passes through untouched.
+query I
+SELECT fields = marc_264_from_260(fields)
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+true
+
+# marc_check_urls — the to-check worklist (one row per 856 with a $u; the
+# actual HTTP resolution pattern is documented on the macro, not executed).
+query IIIII
+SELECT record_no, control_number, uri, link_text, scheme
+FROM marc_check_urls(getvariable('utf8'));
+----
+2	ocm00000002	https://example.org/x	Full text	https
+
+# marc_cluster_headings — make a variant-heading corpus: record 1 plus a
+# copy whose 100 $a token order differs, which must key-collide.
+statement ok
+COPY (SELECT leader, fields FROM read_marc(getvariable('utf8'))
+      UNION ALL
+      SELECT leader, marc_set_subfield(fields, '100', 'a', 'Anna Müller,')
+      FROM read_marc(getvariable('utf8')) WHERE record_no = 1)
+TO '__TEST_DIR__/cluster.mrc' (FORMAT marc);
+
+query IIII
+SELECT key, n_headings, n_variants, len(members)
+FROM marc_cluster_headings('__TEST_DIR__/cluster.mrc', 'fingerprint')
+WHERE n_variants > 1;
+----
+1970 anna author muller	2	2	2
+
+query II
+SELECT members[1], members[2]
+FROM marc_cluster_headings('__TEST_DIR__/cluster.mrc', 'fingerprint')
+WHERE n_variants > 1;
+----
+Anna Müller, 1970- author.	Müller, Anna, 1970- author.
+
+# Singleton keys stay singleton rows; the ngram method also runs.
+query I
+SELECT count(*) FROM marc_cluster_headings('__TEST_DIR__/cluster.mrc', 'fingerprint')
+WHERE n_variants = 1;
+----
+3
+
+query I
+SELECT count(*) > 0 FROM marc_cluster_headings('__TEST_DIR__/cluster.mrc', 'ngram');
+----
+true
+
+statement error
+SELECT * FROM marc_cluster_headings(getvariable('utf8'), 'levenshtein');
+----
+fingerprint or ngram

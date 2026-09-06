@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Hand-built KORMARC (KS X 6006) bibliographic record in the MARC 21 slim
+     XML container - the shape COPY (FORMAT marcxml) produces for a KORMARC
+     file read with read_marc(..., encoding := 'utf8').  KORMARC is MARC
+     21-structured, so most of this record is already MARC 21; the Korean
+     specifics exercised here are 049 소장사항, 052 국립중앙도서관 청구기호,
+     056 한국십진분류기호 (KDC), 090 자관 청구기호, 940 로컬표목-표제 and
+     950 로컬정보-가격, plus a Hangul 245 and an 008 that leaves the country
+     and language positions uncoded.  Content is Hangul UTF-8. -->
+<record xmlns="http://www.loc.gov/MARC21/slim">
+  <leader>00000nam a2200000 c 4500</leader>
+  <controlfield tag="001">KOR0000001</controlfield>
+  <controlfield tag="005">20240401101500.0</controlfield>
+  <controlfield tag="008">240401s2022    |||||||||||||||||||||||||</controlfield>
+  <datafield tag="020" ind1=" " ind2=" ">
+    <subfield code="a">9788937473135</subfield>
+  </datafield>
+  <datafield tag="049" ind1="0" ind2=" ">
+    <subfield code="l">EM0000123456</subfield>
+    <subfield code="f">별치</subfield>
+    <subfield code="v">2</subfield>
+    <subfield code="c">c.2</subfield>
+  </datafield>
+  <datafield tag="052" ind1=" " ind2=" ">
+    <subfield code="a">811.36</subfield>
+    <subfield code="b">김66ㅎ</subfield>
+  </datafield>
+  <datafield tag="056" ind1=" " ind2=" ">
+    <subfield code="a">811.36</subfield>
+    <subfield code="b">김66ㅎ</subfield>
+    <subfield code="2">6</subfield>
+  </datafield>
+  <datafield tag="090" ind1=" " ind2=" ">
+    <subfield code="a">811.36</subfield>
+    <subfield code="b">김66ㅎ2</subfield>
+  </datafield>
+  <datafield tag="100" ind1="1" ind2=" ">
+    <subfield code="a">김영하</subfield>
+    <subfield code="d">1968-</subfield>
+  </datafield>
+  <datafield tag="245" ind1="1" ind2="4">
+    <subfield code="a">한국의 새 :</subfield>
+    <subfield code="b">들판에서 만나는 새 도감 /</subfield>
+    <subfield code="c">김영하 지음.</subfield>
+  </datafield>
+  <datafield tag="250" ind1=" " ind2=" ">
+    <subfield code="a">개정판.</subfield>
+  </datafield>
+  <datafield tag="260" ind1=" " ind2=" ">
+    <subfield code="a">서울 :</subfield>
+    <subfield code="b">문학동네,</subfield>
+    <subfield code="c">2022.</subfield>
+  </datafield>
+  <datafield tag="300" ind1=" " ind2=" ">
+    <subfield code="a">312 p. :</subfield>
+    <subfield code="b">삽화 ;</subfield>
+    <subfield code="c">23 cm.</subfield>
+  </datafield>
+  <datafield tag="650" ind1=" " ind2="8">
+    <subfield code="a">조류</subfield>
+    <subfield code="z">한국</subfield>
+  </datafield>
+  <datafield tag="856" ind1="4" ind2="0">
+    <subfield code="u">https://example.org/hanguk-sae</subfield>
+  </datafield>
+  <datafield tag="940" ind1=" " ind2=" ">
+    <subfield code="a">Hanguk ui sae</subfield>
+  </datafield>
+  <datafield tag="950" ind1="0" ind2=" ">
+    <subfield code="b">\18000</subfield>
+  </datafield>
+  <datafield tag="990" ind1=" " ind2=" ">
+    <subfield code="a">지역자료</subfield>
+  </datafield>
+</record>

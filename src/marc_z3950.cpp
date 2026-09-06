@@ -9,6 +9,7 @@
 //! happens on the first scan call of a single-threaded scan: Z39.50 is a
 //! stateful session protocol, so there is nothing to parallelise.
 #include "marc21_extension.hpp"
+#include "marc/compat.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
@@ -43,7 +44,7 @@ struct Z3950GlobalState : public GlobalTableFunctionState {
 };
 
 static unique_ptr<FunctionData> Z3950Bind(ClientContext &context, TableFunctionBindInput &input,
-                                          vector<LogicalType> &types, vector<string> &names) {
+                                          vector<LogicalType> &types, MarcBindNames &names) {
 	if (!Settings::Get<EnableExternalAccessSetting>(DBConfig::GetConfig(context))) {
 		throw PermissionException("Z39.50 access is disabled through configuration");
 	}
@@ -53,7 +54,7 @@ static unique_ptr<FunctionData> Z3950Bind(ClientContext &context, TableFunctionB
 	result->database = input.inputs[2].GetValue<string>();
 	result->query = input.inputs[3].GetValue<string>();
 	for (auto &kv : input.named_parameters) {
-		auto name = StringUtil::Lower(kv.first);
+		auto name = StringUtil::Lower(MarcName(kv.first));
 		if (name == "max_records") {
 			result->max_records = kv.second.GetValue<int32_t>();
 		} else if (name == "timeout") {

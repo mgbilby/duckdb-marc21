@@ -1,0 +1,72 @@
+# name: test/sql/marc_nfd.test
+# description: COPY (FORMAT marc, NORMALIZE 'nfd') writes decomposed values
+# group: [marc]
+
+require marc21
+
+# NFD output decomposes: é (U+00E9) becomes e + U+0301 on the wire, and
+# reads back NFC-equal because read_marc re-normalizes.
+statement ok
+COPY (SELECT '00000nam a2200000 a 4500' AS leader,
+             [struct_pack(tag := '100', ind1 := '1', ind2 := ' ',
+                          value := NULL::VARCHAR,
+                          subfields := [struct_pack(code := 'a', value := 'Ren' || chr(233))])] AS fields)
+TO '__TEST_DIR__/nfd.mrc' (FORMAT marc, NORMALIZE 'nfd');
+
+query I
+SELECT marc_subfield(fields, '100', 'a') = 'Ren' || chr(233)
+FROM read_marc('__TEST_DIR__/nfd.mrc');
+----
+true
+
+# The raw bytes really are decomposed (0x65 0xCC 0x81, not 0xC3 0xA9).
+query I
+SELECT position('e' || chr(769) IN content::VARCHAR) > 0
+FROM read_text('__TEST_DIR__/nfd.mrc');
+----
+true
+
+# Reading decomposed bytes and writing them back composes them: every value
+# survives, the file does not.  This is what a round trip of NFD source data
+# does at scale -- 250,000 LC records lost 697,697 bytes to it and not one
+# subfield -- so cmp on such a file is expected to differ.
+statement ok
+COPY (SELECT leader, fields FROM read_marc('__TEST_DIR__/nfd.mrc'))
+TO '__TEST_DIR__/nfd_roundtrip.mrc' (FORMAT marc);
+
+query I
+SELECT (SELECT marc_subfield(fields, '100', 'a') FROM read_marc('__TEST_DIR__/nfd.mrc'))
+     = (SELECT marc_subfield(fields, '100', 'a') FROM read_marc('__TEST_DIR__/nfd_roundtrip.mrc'));
+----
+true
+
+# One byte shorter: e + U+0301 (three bytes) came back as e-acute (two).
+query I
+SELECT (SELECT octet_length(content) FROM read_blob('__TEST_DIR__/nfd.mrc'))
+     - (SELECT octet_length(content) FROM read_blob('__TEST_DIR__/nfd_roundtrip.mrc'));
+----
+1
+
+# Nothing decomposed is left in the rewritten file.
+query I
+SELECT position(chr(769) IN content::VARCHAR) = 0
+FROM read_text('__TEST_DIR__/nfd_roundtrip.mrc');
+----
+true
+
+# NORMALIZE 'nfc' is accepted as the explicit default.
+statement ok
+COPY (SELECT '00000nam a2200000 a 4500' AS leader,
+             [struct_pack(tag := '245', ind1 := '0', ind2 := '0',
+                          value := NULL::VARCHAR,
+                          subfields := [struct_pack(code := 'a', value := 'Plain')])] AS fields)
+TO '__TEST_DIR__/nfc.mrc' (FORMAT marc, NORMALIZE 'nfc');
+
+# Unknown values error at bind.
+statement error
+COPY (SELECT '00000nam a2200000 a 4500' AS leader,
+             [struct_pack(tag := '245', ind1 := '0', ind2 := '0',
+                          value := NULL::VARCHAR,
+                          subfields := [struct_pack(code := 'a', value := 'Plain')])] AS fields)
+TO '__TEST_DIR__/bad.mrc' (FORMAT marc, NORMALIZE 'nfkd');
+----

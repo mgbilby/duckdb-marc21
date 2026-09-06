@@ -200,15 +200,15 @@ as issue codes:
 
 | code | meaning |
 |---|---|
-| `desc_aacr2` | Leader/18 = `a` — record still coded AACR2 |
-| `no_040e_rda` | no 040 `$e rda` cataloging-convention marker |
-| `missing_336` / `_337` / `_338` | RDA content/media/carrier types absent |
-| `gmd_245h` | 245 `$h` GMD, deprecated in RDA in favor of the 33X trio |
-| `only_260` | publication data in 260 with no 264 (RDA prefers 264) |
 | `aacr2_abbreviations` | 250/300 abbreviations RDA spells out (`p.`, `v.`, `ill.`, `ed.`, ...) |
-| `sl_sn_260` | `[S.l.]` / `[s.n.]`, replaced in RDA by `[Place of publication not identified]` etc. |
+| `desc_aacr2` | Leader/18 = `a` — record still coded AACR2 |
 | `et_al_245` | `[et al.]` in the statement of responsibility |
+| `gmd_245h` | 245 `$h` GMD, deprecated in RDA in favor of the 33X trio |
+| `missing_336` / `_337` / `_338` | RDA content/media/carrier types absent |
+| `no_040e_rda` | no 040 `$e rda` cataloging-convention marker |
 | `no_relator_1xx` / `_7xx` | name entries with neither `$e` designator nor `$4` code |
+| `only_260` | publication data in 260 with no 264 (RDA prefers 264) |
+| `sl_sn_260` | `[S.l.]` / `[s.n.]`, replaced in RDA by `[Place of publication not identified]` etc. |
 
 Non-bibliographic records return an empty list. Profile a file first:
 
@@ -254,3 +254,61 @@ recipe 3 pairs well here). Notes:
 * run the fix only on flagged records (`WHERE len(marc_rda_check(...)) > 0`)
   to leave born-RDA copy untouched — every step is a no-op on clean records,
   so this is an optimization, not a correctness requirement.
+
+## 8. Alma round trip: SRU worklist → batch fix → API write-back → verify
+
+The Alma write-back macros compose three transports: keyless SRU for
+discovery (`httpfs`), the Bibs API GET for the record to edit (`httpfs`
+plus your read key), and the Bibs API PUT through the community
+`http_request` extension (read/write key). Full auth and safety notes —
+sandbox first, key scoping, `stale_version_check` — are in
+[connectors/alma.md](connectors/alma.md).
+
+```sql
+INSTALL http_request FROM community;
+LOAD httpfs; LOAD http_request; LOAD marc21;
+
+-- 1. Pull a set over SRU (keyless; subfield shape) and build the worklist:
+--    records still carrying a 245 $h GMD.  Alma's 001 in SRU output is the
+--    MMS ID.
+CREATE TEMP TABLE worklist AS
+SELECT DISTINCT control_number AS mms_id
+FROM marc_readalma_sru('https://mylib.alma.exlibrisgroup.com', 'MYLIB',
+                       'alma.all_for_ui=cartography', max_records := 200)
+WHERE tag = '245' AND code = 'h';
+
+-- 2. Write back ONE record first (API updates are per record anyway, and a
+--    verified single round trip is the sanity gate before looping).  Fetch
+--    the live copy in the nested shape, apply the edit — drop the GMD and
+--    derive the RDA 33X trio — and build the <bib> envelope into a
+--    variable (table-function arguments take variables, not subqueries):
+SET VARIABLE mms  = (SELECT min(mms_id) FROM worklist);
+SET VARIABLE alma_body = (
+    SELECT marc_alma_bib_body(leader,
+               marc_generate_33x(leader,
+                   marc_remove_subfield(fields, '245', 'h')))
+    FROM marc_readnestedxml(
+        'https://api-na.hosted.exlibrisgroup.com/almaws/v1/bibs/'
+        || getvariable('mms') || '?apikey=l8xxSANDBOXREAD'));
+
+-- 3. PUT.  stale_version_check refuses the update if the record changed
+--    since the fetch (the 005 is the version stamp); 200 means saved.
+SELECT status, body
+FROM marc_alma_update_bib('https://api-na.hosted.exlibrisgroup.com',
+                          getvariable('mms'), 'l8xxSANDBOXWRITE',
+                          getvariable('alma_body'),
+                          stale_version_check := true);
+
+-- 4. Verify: re-fetch through the ordinary reader — no GMD left, 33X on.
+SELECT count(*) FILTER (WHERE tag = '245' AND code = 'h') AS gmd_left,
+       count(DISTINCT tag) FILTER (WHERE tag IN ('336', '337', '338')) AS rda_33x
+FROM marc_readalma('https://api-na.hosted.exlibrisgroup.com',
+                   getvariable('mms'), apikey := 'l8xxSANDBOXREAD');
+```
+
+Repeat steps 2–3 per worklist row (a shell loop over `COPY worklist TO
+'mms.csv'` works well: SQL variables hold one record at a time by design —
+this API is deliberately not a batch interface). When the worklist grows
+past a few hundred records, switch to the import-profile batch path in
+[connectors/alma.md](connectors/alma.md) and keep the API round trip for
+spot checks.

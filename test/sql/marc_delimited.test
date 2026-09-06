@@ -1,0 +1,117 @@
+# name: test/sql/marc_delimited.test
+# description: Delimited text -> MARC (marc_from_delimited family) with a CSV round trip
+# group: [marc]
+
+require marc21
+
+# ---------------------------------------------------------------------------
+# Mapping semantics on literal values
+# ---------------------------------------------------------------------------
+
+# Same (tag, i1, i2) entries merge into one field, subfields in mapping order;
+# fields land in tag order around the marc_new_record skeleton (008 present).
+query IIII
+SELECT list_transform(r.fields, lambda f: f.tag),
+       marc_subfield(r.fields, '245', 'a'),
+       marc_subfield(r.fields, '245', 'c'),
+       marc_control_field(r.fields, '001')
+FROM (SELECT marc_from_delimited('book', [
+        {tag: '245', i1: '1', i2: '0', code: 'a', value: 'A title /'},
+        {tag: '245', i1: '1', i2: '0', code: 'c', value: 'An author.'},
+        {tag: '100', i1: '1', i2: NULL, code: 'a', value: 'An author'},
+        {tag: '001', i1: NULL, i2: NULL, code: NULL, value: 'REC1'}
+      ]) AS r);
+----
+[001, 008, 100, 245]	A title /	An author.	REC1
+
+# Blank and NULL cells drop their subfield; a field with nothing left is
+# omitted entirely.  NULL i1/i2 mean blank indicators, NULL code means 'a'.
+query IIII
+SELECT len(marc_fields(r.fields, '650')), len(marc_fields(r.fields, '260')),
+       marc_fields(r.fields, '246')[1].ind1 = ' '
+           AND marc_fields(r.fields, '246')[1].ind2 = ' ',
+       marc_fields(r.fields, '246')[1].subfields[1].code
+FROM (SELECT marc_from_delimited('book', [
+        {tag: '246', i1: NULL, i2: NULL, code: NULL, value: 'Variant title'},
+        {tag: '650', i1: ' ', i2: '0', code: 'a', value: ''},
+        {tag: '260', i1: NULL, i2: NULL, code: 'b', value: NULL}
+      ]) AS r);
+----
+0	0	true	a
+
+# Different indicators keep same-tag entries as separate fields, mapping
+# order preserved.
+query II
+SELECT s[1], s[2]
+FROM (SELECT list_transform(marc_fields(r.fields, '650'),
+                            lambda f: f.ind2 || ':' || f.subfields[1].value) AS s
+      FROM (SELECT marc_from_delimited('book', [
+              {tag: '650', i1: ' ', i2: '0', code: 'a', value: 'Ducks'},
+              {tag: '650', i1: ' ', i2: '4', code: 'a', value: 'Waterfowl'}
+            ]) AS r));
+----
+0:Ducks	4:Waterfowl
+
+# The material picks the marc_new_record skeleton: serial leader/07 = 's'.
+query I
+SELECT marc_bib_level(marc_from_delimited('serial', [
+    {tag: '245', i1: '0', i2: '0', code: 'a', value: 'J. of Tests'}]).leader);
+----
+s
+
+# marc_from_delimited_url appends an 856 40 via marc_kbart_856; NULL url
+# appends nothing.
+query III
+SELECT marc_subfield(r.fields, '856', 'u'), marc_subfield(r.fields, '856', 'z'),
+       len(marc_fields(r2.fields, '856'))
+FROM (SELECT marc_from_delimited_url('electronic',
+                 [{tag: '245', i1: '0', i2: '0', code: 'a', value: 'Online thing'}],
+                 'https://example.org/x', 'Full text') AS r,
+             marc_from_delimited_url('electronic',
+                 [{tag: '245', i1: '0', i2: '0', code: 'a', value: 'No url'}],
+                 NULL, NULL) AS r2);
+----
+https://example.org/x	Full text	0
+
+# ---------------------------------------------------------------------------
+# The worked CSV round trip: spreadsheet -> records -> ISO 2709 -> read back
+# ---------------------------------------------------------------------------
+
+statement ok
+COPY (SELECT * FROM (VALUES
+        ('The whale watchers'' guide /', 'Berger, Melvin.', '0716717972', 'Whales'),
+        ('Ducks of the north', 'Cousteau, Amélie.', '', 'Ducks'))
+      AS t(title, author, isbn, subject))
+TO '__TEST_DIR__/delimited.csv' (FORMAT csv, HEADER true);
+
+statement ok
+COPY (SELECT r.leader AS leader, r.fields AS fields
+      FROM (SELECT marc_from_delimited('book', [
+                {tag: '245', i1: '1', i2: '0', code: 'a', value: title},
+                {tag: '100', i1: '1', i2: NULL, code: 'a', value: author},
+                {tag: '020', i1: NULL, i2: NULL, code: 'a', value: isbn},
+                {tag: '650', i1: ' ', i2: '0', code: 'a', value: subject}
+            ]) AS r
+            FROM read_csv('__TEST_DIR__/delimited.csv',
+                          header := true, all_varchar := true)))
+TO '__TEST_DIR__/delimited.mrc' (FORMAT marc);
+
+# Read back: titles, authors and subjects survive; the blank ISBN cell of
+# row 2 produced no 020; UTF-8 author survives the binary round trip.
+query IIII
+SELECT marc_subfield(fields, '245', 'a'),
+       marc_subfield(fields, '100', 'a'),
+       marc_subfield(fields, '020', 'a'),
+       marc_subfield(fields, '650', 'a')
+FROM read_marc('__TEST_DIR__/delimited.mrc')
+ORDER BY 1;
+----
+Ducks of the north	Cousteau, Amélie.	NULL	Ducks
+The whale watchers' guide /	Berger, Melvin.	0716717972	Whales
+
+# Structurally valid MARC 21 out of the translator.
+query I
+SELECT bool_and(len(marc_validate(leader, fields)) = 0)
+FROM read_marc('__TEST_DIR__/delimited.mrc');
+----
+true
