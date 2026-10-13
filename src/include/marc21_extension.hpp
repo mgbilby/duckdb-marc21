@@ -9,7 +9,19 @@ struct Record;
 namespace duckdb {
 
 class ExtensionLoader;
-void RegisterMarcCopy(ExtensionLoader &loader);
+
+//! The readers the COPY formats are read back through.  COPY ... FROM is
+//! bound by the multi-file framework around the matching reader, and the
+//! readers are built in marc_extension.cpp, so they are handed over rather
+//! than rebuilt here.  Empty on v1.5.x, which has no such binding.
+struct MarcCopyReaders {
+	TableFunction marc;
+	TableFunction marcxml;
+	TableFunction mrk;
+	TableFunction marcjson;
+};
+
+void RegisterMarcCopy(ExtensionLoader &loader, MarcCopyReaders readers);
 void RegisterMarcScalars(ExtensionLoader &loader);
 //! The STRUCT type of one element of the nested `fields` column.
 const LogicalType &MarcFieldStructType();

@@ -14,6 +14,7 @@
 //! Tag patterns use '.' wildcards; invalid patterns/regexes/modes are errors.
 
 #include "marc21_extension.hpp"
+#include "marc/compat.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
@@ -132,16 +133,16 @@ void RegisterMarcClusterScalars(ExtensionLoader &loader) {
 	auto fields_type = LogicalType::LIST(MarcFieldStructType());
 	auto V = LogicalType::VARCHAR;
 
-	loader.RegisterFunction(ScalarFunction("marc_fingerprint", {V}, V, FingerprintExec));
-	loader.RegisterFunction(
+	MarcRegisterScalar(loader,ScalarFunction("marc_fingerprint", {V}, V, FingerprintExec));
+	MarcRegisterScalar(loader,
 	    ScalarFunction("marc_ngram_fingerprint", {V, LogicalType::INTEGER}, V, NgramFingerprintExec));
 
-	loader.RegisterFunction(ScalarFunction("marc_move_field", {fields_type, V, V}, fields_type, MoveFieldExec));
-	loader.RegisterFunction(ScalarFunction("marc_copy_field", {fields_type, V, V}, fields_type, CopyFieldExec));
-	loader.RegisterFunction(
+	MarcRegisterScalar(loader,ScalarFunction("marc_move_field", {fields_type, V, V}, fields_type, MoveFieldExec));
+	MarcRegisterScalar(loader,ScalarFunction("marc_copy_field", {fields_type, V, V}, fields_type, CopyFieldExec));
+	MarcRegisterScalar(loader,
 	    ScalarFunction("marc_change_case", {fields_type, V, V, V}, fields_type, ChangeCaseExec));
-	loader.RegisterFunction(ScalarFunction("marc_build_field", {fields_type, V}, fields_type, BuildFieldExec));
-	loader.RegisterFunction(
+	MarcRegisterScalar(loader,ScalarFunction("marc_build_field", {fields_type, V}, fields_type, BuildFieldExec));
+	MarcRegisterScalar(loader,
 	    ScalarFunction("marc_remove_fields_where", {fields_type, V, V, V}, fields_type, RemoveFieldsWhereExec));
 }
 

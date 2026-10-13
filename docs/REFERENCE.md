@@ -35,6 +35,39 @@ composed, so writing it out again preserves every value but not every byte
 marc, NORMALIZE 'nfd')` writes decomposed output if a downstream system
 needs it.
 
+### Multi-file reading
+
+Every file reader above — `read_marc`, `read_marc_subfields`, `read_marc_raw`,
+`read_marc_breaker`, `read_marcxml`, `read_marcjson`, `read_alephseq`,
+`read_microlif` — takes a glob (`catalogue/*.mrc.gz`) and reads gzip on both
+supported DuckDB versions, and all of them emit their own `file` column plus a
+`record_no` that is 1-based **within each file**.
+
+On **DuckDB v2.0** each of them is registered as a single-file function wrapped
+in DuckDB's multi-file framework, which adds, for free and on every reader:
+
+| addition | notes |
+|---|---|
+| `LIST(VARCHAR)` overload | `read_marc(['jan.mrc', 'feb.mrc'])` beside the single-path form |
+| `filename := true \| 'colname'` | a column naming each row's source file (the readers' own `file` column already carries this) |
+| `file_index` virtual column | 0-based position of the file in the list |
+| `hive_partitioning := true` | `key=value` directory names become columns, and predicates on them skip whole directories |
+| `hive_types := {...}`, `hive_types_autocast` | types for those partition columns |
+| `union_by_name := true` | combine schemas by name across files |
+| `allow_empty := true` | an empty file list yields no rows instead of an error |
+| `maximum_sample_files := n` | files opened to determine the schema (marc21 sets 1 — every reader's column list is fixed) |
+
+`encoding`, `tags` and `ignore_errors` are forwarded to the reader unchanged
+and combine with all of the above. Two things the framework does *not* give
+these readers: `file_row_number` (use `record_no`) and asynchronous I/O inside
+a single file (files in a list or glob are still read in parallel).
+
+`COPY ... FROM 'file.mrc' (FORMAT marc)` *is* supported on v2.0, for all four
+of `marc`, `marcxml`, `mrk` and `marcjson`; on v1.5.x those formats are
+write-only and loading is `read_marc(...)` plus `INSERT INTO ... SELECT`.
+
+Version applicability, row-group pruning and storage: [DUCKDB2.md](DUCKDB2.md).
+
 ### read_z3950
 
 An independently implemented Z39.50-1995 client (Init → Search → Present, Type-1 RPN with
@@ -137,12 +170,12 @@ Tag patterns use `.` wildcards (`6..`).
 | function | notes |
 |---|---|
 | `marc_264_from_260(fields)` | RDA 264 _1/_4 pair generated from a 260, in place |
-| `marc_build_field(leader, fields, template)` | a field built from a breaker-line template with `{tag$code}` placeholders |
+| `marc_build_field(fields, template)` | a field built from a one-line breaker template with `{tag$code}` placeholders filled from the record, inserted in tag order |
 | `marc_change_case(fields, tagpat, code_or_'*', 'upper'\|'lower'\|'title')` | recase matching values (ASCII + Latin-1; control fields untouched) |
 | `marc_check_urls(path)` | table macro: the URL audit worklist for a whole file |
 | `marc_copy_field(fields, tagpat, new_tag)` | copies of the matching fields under `new_tag`, inserted in tag order |
 | `marc_move_field(fields, from_tagpat, to_tag)` | renumber in place, order and indicators kept |
-| `marc_remove_fields_where(fields, tagpat, code, regex, [icase])` | delete fields whose subfield matches the regex |
+| `marc_remove_fields_where(fields, tagpat, code, regex)` | delete fields whose `code` subfield matches the regex (ECMAScript, search semantics, case-sensitive: write `[Rr]ivers` to match either case) |
 | `marc_rename_subfield(fields, tagpat, from_code, to_code)` | $x → $z within matching data fields, values and subfield order kept |
 | `marc_sort_fields(fields)` | stable tag sort — same tag keeps occurrence order |
 | `marc_swap_fields(fields, tag_a, tag_b)` | exchange the two tags in place — every `tag_a` field becomes `tag_b` and vice versa, order and indicators kept; literal tags on the same side of the control/data boundary |

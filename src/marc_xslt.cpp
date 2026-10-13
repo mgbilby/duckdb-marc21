@@ -106,30 +106,30 @@ void XsltCatalogScan(ClientContext &, TableFunctionInput &data, DataChunk &outpu
 // ---------------------------------------------------------------------------
 
 void StylesheetExec(DataChunk &args, ExpressionState &, Vector &result) {
-	UnaryExecutor::ExecuteWithNulls<string_t, string_t>(
-	    args.data[0], result, args.size(), [&](string_t input, ValidityMask &mask, idx_t idx) {
+	MarcUnaryWithNulls<string_t, string_t>(
+	    args.data[0], result, args.size(), [&](string_t input, bool &is_null) {
 		    auto sheet = FindSheet(std::string(input.GetData(), input.GetSize()));
 		    if (!sheet) {
-			    mask.SetInvalid(idx);
+			    is_null = true;
 			    return string_t();
 		    }
 		    return StringVector::AddString(result, sheet->text, std::strlen(sheet->text));
 	    });
 }
 
-void LibraryExec(DataChunk &, ExpressionState &, Vector &result) {
-	result.Reference(Value(std::string(marc::XSLT_LIBRARY_TEXT)));
+void LibraryExec(DataChunk &args, ExpressionState &, Vector &result) {
+	MarcReferenceValue(result, Value(std::string(marc::XSLT_LIBRARY_TEXT)), args.size());
 }
 
 } // namespace
 
 void RegisterMarcXslt(ExtensionLoader &loader) {
 	TableFunction catalog("marc_xslt_functions", {}, XsltCatalogScan, XsltCatalogBind, XsltCatalogInitGlobal);
-	loader.RegisterFunction(catalog);
+	MarcRegisterTable(loader, std::move(catalog), "marc_xslt_functions");
 
 	auto V = LogicalType::VARCHAR;
-	loader.RegisterFunction(ScalarFunction("marc_xslt_stylesheet", {V}, V, StylesheetExec));
-	loader.RegisterFunction(ScalarFunction("marc_xslt_library", {}, V, LibraryExec));
+	MarcRegisterScalar(loader,ScalarFunction("marc_xslt_stylesheet", {V}, V, StylesheetExec));
+	MarcRegisterScalar(loader,ScalarFunction("marc_xslt_library", {}, V, LibraryExec));
 }
 
 } // namespace duckdb

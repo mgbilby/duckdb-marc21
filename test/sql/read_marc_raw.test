@@ -46,7 +46,10 @@ SELECT count(DISTINCT record_no) FROM read_marc_subfields(getvariable('bad'), ig
 2
 
 # Missing file is a clean error
+# The wording differs by engine -- v1.5.x reports "Cannot open file", the v2.0
+# multi-file glob reports "No files found that match the pattern" -- so match on
+# the filename, which both name.
 statement error
 SELECT * FROM read_marc_raw('test/data/does-not-exist.mrc');
 ----
-Cannot open file
+does-not-exist.mrc

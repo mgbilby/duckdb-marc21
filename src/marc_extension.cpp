@@ -24,10 +24,12 @@
 #include "duckdb/main/extension_helper.hpp"
 #include "duckdb/main/settings.hpp"
 #include "duckdb/parser/parsed_data/create_function_info.hpp"
+#include "duckdb/parser/parsed_data/create_macro_info.hpp"
 #include "duckdb/parser/statement/create_statement.hpp"
 
 #include "marc/core.hpp"
 #include "marc/formats.hpp"
+#include "marc/variant.hpp"
 #include "marc/macros_sql.hpp"
 
 #include <atomic>
@@ -48,13 +50,19 @@ static bool HasGzExtension(const string &path) {
 	return StringUtil::EndsWith(StringUtil::Lower(path), ".gz");
 }
 
+//! The files one reader invocation covers.
+//!
+//! Under the v2.0 multi-file framework the reader is a single-file function:
+//! the framework has already globbed and hands it one concrete path, so
+//! expanding again here would resolve the pattern twice.  On v1.5.x the reader
+//! is the multi-file function and does its own expansion.
 static vector<string> ExpandPaths(ClientContext &context, const string &pattern) {
-	auto &fs = FileSystem::GetFileSystem(context);
 	vector<string> paths;
-	if (!FileSystem::HasGlob(pattern)) {
+	if (!MarcReaderGlobsItself() || !FileSystem::HasGlob(pattern)) {
 		paths.push_back(pattern);
 		return paths;
 	}
+	auto &fs = FileSystem::GetFileSystem(context);
 	for (auto &info : fs.GlobFiles(pattern, FileGlobOptions::DISALLOW_EMPTY)) {
 		paths.push_back(info.path);
 	}
@@ -67,13 +75,15 @@ static vector<string> ExpandPaths(ClientContext &context, const string &pattern)
 class RecordStream {
 public:
 	RecordStream(ClientContext &context, const string &path) {
-		auto &fs = FileSystem::GetFileSystem(context);
-		auto handle = fs.OpenFile(path, FileOpenFlags(FileOpenFlags::FILE_FLAGS_READ));
-		if (HasGzExtension(path)) {
+		auto compressed = HasGzExtension(path);
+		source_ = make_uniq<MarcByteSource>(context, path, compressed);
+		if (compressed) {
+			// The gzip wrapper takes ownership of the handle, so a compressed
+			// file is always read through the plain one.
 			gzip_ = make_uniq<GZipFileSystem>();
-			handle = gzip_->OpenCompressedFile(QueryContext(context), std::move(handle), false);
+			handle_ = gzip_->OpenCompressedFile(QueryContext(context), source_->ReleasePlain(), false);
+			source_.reset();
 		}
-		handle_ = std::move(handle);
 	}
 
 	//! Next raw record into `out`; false at end of file.
@@ -102,7 +112,7 @@ public:
 			}
 			auto old = buf_.size();
 			buf_.resize(old + READ_CHUNK);
-			auto n = handle_->Read(&buf_[old], READ_CHUNK);
+			auto n = source_ ? source_->Read(&buf_[old], READ_CHUNK) : handle_->Read(&buf_[old], READ_CHUNK);
 			buf_.resize(old + static_cast<size_t>(std::max<int64_t>(n, 0)));
 			if (n <= 0) {
 				eof_ = true;
@@ -112,7 +122,8 @@ public:
 
 private:
 	unique_ptr<GZipFileSystem> gzip_; // must outlive the compressed handle
-	unique_ptr<FileHandle> handle_;
+	unique_ptr<MarcByteSource> source_; // set for uncompressed files
+	unique_ptr<FileHandle> handle_;     // set for gzip, which owns its handle
 	string buf_;
 	bool eof_ = false;
 };
@@ -181,6 +192,32 @@ struct ScanGlobalState : public GlobalTableFunctionState {
 	vector<column_t> column_ids;
 	marc::DecodeMode mode = marc::DecodeMode::ALL;
 
+	//! Scan counters, reported through the profiler (see MarcScanGetMetrics).
+	//! "How much of this dump is MARC-8?" and "how many records did we skip?"
+	//! are the first questions asked of an unfamiliar catalogue, and answering
+	//! them from the profiler beats running the scan twice.  Records are
+	//! counted on every scan thread, so these are atomic; they are relaxed
+	//! counters, not a synchronisation point.
+	std::atomic<idx_t> records_parsed {0};
+	std::atomic<idx_t> marc8_records {0};
+	std::atomic<idx_t> utf8_records {0};
+	std::atomic<idx_t> decode_errors {0};
+
+	//! Count one successfully parsed record, classifying its encoding.
+	//! Leader position 09 carries it: 'a' is UTF-8 and blank is MARC-8, which
+	//! is cheaper and less invasive than having the parser report back.
+	void CountRecord(const marc::Record &rec) {
+		records_parsed.fetch_add(1, std::memory_order_relaxed);
+		if (rec.leader.size() > 9 && (rec.leader[9] == 'a' || rec.leader[9] == 'A')) {
+			utf8_records.fetch_add(1, std::memory_order_relaxed);
+		} else {
+			marc8_records.fetch_add(1, std::memory_order_relaxed);
+		}
+	}
+	void CountError() {
+		decode_errors.fetch_add(1, std::memory_order_relaxed);
+	}
+
 	std::mutex io_lock;
 	idx_t current_path = 0;
 	unique_ptr<RecordStream> stream; // stream over paths[current_path - 1] once opened
@@ -228,6 +265,12 @@ struct ScanGlobalState : public GlobalTableFunctionState {
 };
 
 //! Per-thread state: the claimed batch being decoded.
+//!
+//! When the engine drives the scan batch at a time (v2.0 claim_batch, below)
+//! `claimed_externally` is set and the thread never refills on its own: it
+//! drains the batch it was handed and stops, so the caller knows which rows
+//! belong to which batch and can restore record order downstream.  Otherwise
+//! the thread pulls the next batch itself and runs until the scan is done.
 struct ScanLocalState : public LocalTableFunctionState {
 	static constexpr idx_t BATCH = 48;
 	std::vector<RawWorkItem> batch;
@@ -235,12 +278,28 @@ struct ScanLocalState : public LocalTableFunctionState {
 	string raw;      // current item's bytes
 	string path;     // current item's file
 	int64_t record_no = 0;
+	bool claimed_externally = false;
+
+	//! Take the next batch from the global state; false when nothing is left.
+	bool ClaimBatch(ClientContext &context, ScanGlobalState &global) {
+		batch.clear();
+		batch_pos = 0;
+		return global.FillBatch(context, batch, BATCH);
+	}
+
+	//! Release the batch this thread just finished.
+	void FinishBatch() {
+		batch.clear();
+		batch_pos = 0;
+	}
 
 	bool NextRaw(ClientContext &context, ScanGlobalState &global, string &out) {
 		if (batch_pos >= batch.size()) {
-			batch.clear();
-			batch_pos = 0;
-			if (!global.FillBatch(context, batch, BATCH)) {
+			if (claimed_externally) {
+				// The next batch is the caller's to hand us.
+				return false;
+			}
+			if (!ClaimBatch(context, global)) {
 				return false;
 			}
 		}
@@ -251,6 +310,24 @@ struct ScanLocalState : public LocalTableFunctionState {
 		return true;
 	}
 };
+
+#if MARC21_DUCKDB_V2
+//! v2.0 batch-at-a-time scanning.  Implementing these makes the engine claim
+//! one batch per call rather than running the scan to exhaustion, which is what
+//! lets batches read in parallel be put back in order -- record order within a
+//! MARC file is meaningful to catalogers, and this is what makes
+//! preserve_insertion_order hold across a parallel glob.
+static bool ScanClaimBatch(ClientContext &context, TableFunctionInput &input) {
+	auto &global = input.global_state->Cast<ScanGlobalState>();
+	auto &local = input.local_state->Cast<ScanLocalState>();
+	local.claimed_externally = true;
+	return local.ClaimBatch(context, global);
+}
+
+static void ScanFinishBatch(ClientContext &, TableFunctionInput &input) {
+	input.local_state->Cast<ScanLocalState>().FinishBatch();
+}
+#endif
 
 static unique_ptr<LocalTableFunctionState> ScanInitLocal(ExecutionContext &, TableFunctionInitInput &,
                                                          GlobalTableFunctionState *) {
@@ -330,26 +407,26 @@ static void EmitSubfieldRows(std::deque<SubfieldRow> &pending, const vector<colu
 			auto &row = pending[i];
 			switch (col) {
 			case 0:
-				FlatVector::GetData<int64_t>(vec)[i] = row.record_no;
+				MarcFlatData<int64_t>(vec)[i] = row.record_no;
 				break;
 			case 1:
-				FlatVector::GetData<string_t>(vec)[i] = StringVector::AddString(vec, row.file);
+				MarcFlatData<string_t>(vec)[i] = StringVector::AddString(vec, row.file);
 				break;
 			case 2:
 				if (row.has_control_number) {
-					FlatVector::GetData<string_t>(vec)[i] = StringVector::AddString(vec, row.control_number);
+					MarcFlatData<string_t>(vec)[i] = StringVector::AddString(vec, row.control_number);
 				} else {
 					FlatVector::SetNull(vec, i, true);
 				}
 				break;
 			case 3:
-				FlatVector::GetData<string_t>(vec)[i] = StringVector::AddString(vec, row.leader);
+				MarcFlatData<string_t>(vec)[i] = StringVector::AddString(vec, row.leader);
 				break;
 			case 4:
-				FlatVector::GetData<int32_t>(vec)[i] = row.field_no;
+				MarcFlatData<int32_t>(vec)[i] = row.field_no;
 				break;
 			case 5:
-				FlatVector::GetData<string_t>(vec)[i] = StringVector::AddString(vec, row.tag);
+				MarcFlatData<string_t>(vec)[i] = StringVector::AddString(vec, row.tag);
 				break;
 			case 6:
 			case 7:
@@ -358,15 +435,15 @@ static void EmitSubfieldRows(std::deque<SubfieldRow> &pending, const vector<colu
 					FlatVector::SetNull(vec, i, true);
 				} else {
 					auto &s = col == 6 ? row.ind1 : (col == 7 ? row.ind2 : row.code);
-					FlatVector::GetData<string_t>(vec)[i] = StringVector::AddString(vec, s);
+					MarcFlatData<string_t>(vec)[i] = StringVector::AddString(vec, s);
 				}
 				break;
 			}
 			case 8:
-				FlatVector::GetData<int32_t>(vec)[i] = row.subfield_no;
+				MarcFlatData<int32_t>(vec)[i] = row.subfield_no;
 				break;
 			case 10:
-				FlatVector::GetData<string_t>(vec)[i] = StringVector::AddString(vec, row.value);
+				MarcFlatData<string_t>(vec)[i] = StringVector::AddString(vec, row.value);
 				break;
 			default:
 				FlatVector::SetNull(vec, i, true);
@@ -433,8 +510,10 @@ static void SubfieldsScan(ClientContext &context, TableFunctionInput &data, Data
 	while (local.pending.size() < STANDARD_VECTOR_SIZE && local.NextRaw(context, global, raw)) {
 		try {
 			auto rec = marc::ParseRecord(raw, bind.encoding, global.mode);
+			global.CountRecord(rec);
 			PushRecordRows(rec, local.record_no, local.path, bind, local.pending);
 		} catch (marc::MarcError &e) {
+			global.CountError();
 			if (!bind.ignore_errors) {
 				throw InvalidInputException("read_marc_subfields: %s record %lld: %s", local.path.c_str(),
 				                            local.record_no, e.what());
@@ -525,7 +604,9 @@ static void NestedScan(ClientContext &context, TableFunctionInput &data, DataChu
 		marc::Record rec;
 		try {
 			rec = marc::ParseRecord(raw, bind.encoding, global.mode);
+			global.CountRecord(rec);
 		} catch (marc::MarcError &e) {
+			global.CountError();
 			if (bind.ignore_errors) {
 				continue;
 			}
@@ -596,7 +677,9 @@ static void RawScan(ClientContext &context, TableFunctionInput &data, DataChunk 
 		marc::Record rec;
 		try {
 			rec = marc::ParseRecord(raw, bind.encoding, global.mode);
+			global.CountRecord(rec);
 		} catch (marc::MarcError &e) {
+			global.CountError();
 			parsed = false;
 			error = e.what();
 		}
@@ -604,15 +687,15 @@ static void RawScan(ClientContext &context, TableFunctionInput &data, DataChunk 
 			auto &vec = output.data[out_col];
 			switch (global.column_ids[out_col]) {
 			case 0:
-				FlatVector::GetData<int64_t>(vec)[n] = local.record_no;
+				MarcFlatData<int64_t>(vec)[n] = local.record_no;
 				break;
 			case 1:
-				FlatVector::GetData<string_t>(vec)[n] = StringVector::AddString(vec, local.path);
+				MarcFlatData<string_t>(vec)[n] = StringVector::AddString(vec, local.path);
 				break;
 			case 2: {
 				auto cn = parsed ? rec.ControlNumber() : nullptr;
 				if (cn) {
-					FlatVector::GetData<string_t>(vec)[n] = StringVector::AddString(vec, *cn);
+					MarcFlatData<string_t>(vec)[n] = StringVector::AddString(vec, *cn);
 				} else {
 					FlatVector::SetNull(vec, n, true);
 				}
@@ -620,22 +703,22 @@ static void RawScan(ClientContext &context, TableFunctionInput &data, DataChunk 
 			}
 			case 3:
 				if (parsed) {
-					FlatVector::GetData<string_t>(vec)[n] = StringVector::AddString(vec, rec.leader);
+					MarcFlatData<string_t>(vec)[n] = StringVector::AddString(vec, rec.leader);
 				} else if (raw.size() >= 24) {
-					FlatVector::GetData<string_t>(vec)[n] = StringVector::AddString(
+					MarcFlatData<string_t>(vec)[n] = StringVector::AddString(
 					    vec, marc::Latin1ToUtf8(std::string_view(raw).substr(0, 24)));
 				} else {
 					FlatVector::SetNull(vec, n, true);
 				}
 				break;
 			case 4:
-				FlatVector::GetData<string_t>(vec)[n] = StringVector::AddStringOrBlob(vec, raw);
+				MarcFlatData<string_t>(vec)[n] = StringVector::AddStringOrBlob(vec, raw);
 				break;
 			case 5:
 				if (parsed) {
 					FlatVector::SetNull(vec, n, true);
 				} else {
-					FlatVector::GetData<string_t>(vec)[n] = StringVector::AddString(vec, error);
+					MarcFlatData<string_t>(vec)[n] = StringVector::AddString(vec, error);
 				}
 				break;
 			default:
@@ -659,13 +742,13 @@ static void RawScan(ClientContext &context, TableFunctionInput &data, DataChunk 
 class TextChunkReader {
 public:
 	TextChunkReader(ClientContext &context, const string &path) {
-		auto &fs = FileSystem::GetFileSystem(context);
-		auto handle = fs.OpenFile(path, FileOpenFlags(FileOpenFlags::FILE_FLAGS_READ));
-		if (HasGzExtension(path)) {
+		auto compressed = HasGzExtension(path);
+		source_ = make_uniq<MarcByteSource>(context, path, compressed);
+		if (compressed) {
 			gzip_ = make_uniq<GZipFileSystem>();
-			handle = gzip_->OpenCompressedFile(QueryContext(context), std::move(handle), false);
+			handle_ = gzip_->OpenCompressedFile(QueryContext(context), source_->ReleasePlain(), false);
+			source_.reset();
 		}
-		handle_ = std::move(handle);
 	}
 
 	//! Append more bytes to `buf`; false at end of file.
@@ -675,7 +758,7 @@ public:
 		}
 		auto old = buf.size();
 		buf.resize(old + READ_CHUNK);
-		auto n = handle_->Read(&buf[old], READ_CHUNK);
+		auto n = source_ ? source_->Read(&buf[old], READ_CHUNK) : handle_->Read(&buf[old], READ_CHUNK);
 		buf.resize(old + static_cast<size_t>(std::max<int64_t>(n, 0)));
 		if (n <= 0) {
 			eof_ = true;
@@ -685,7 +768,8 @@ public:
 
 private:
 	unique_ptr<GZipFileSystem> gzip_;
-	unique_ptr<FileHandle> handle_;
+	unique_ptr<MarcByteSource> source_; // set for uncompressed files
+	unique_ptr<FileHandle> handle_;     // set for gzip, which owns its handle
 	bool eof_ = false;
 };
 
@@ -911,6 +995,111 @@ constexpr char ALEPH_NAME[] = "read_alephseq";
 constexpr char MICROLIF_NAME[] = "read_microlif";
 constexpr char MARCXML_NAME[] = "read_marcxml";
 
+//! Per-file cardinality estimates.
+//!
+//! The planner otherwise has no idea how big a MARC scan is, and under the
+//! multi-file framework this is asked once per file, so it must stay cheap: it
+//! is a file-size division, not a count.  A record carries a 24-byte leader, a
+//! directory and the field data; across the Library of Congress sample used in
+//! audit/, the mean is a little over a kilobyte.  Getting the order of
+//! magnitude right is what matters -- an estimate that says "millions" rather
+//! than "a handful" is what stops a MARC scan being picked as the build side of
+//! a hash join.
+static constexpr idx_t MEAN_RECORD_BYTES = 1200;
+//! Subfield rows per record, for the one-row-per-subfield readers.
+static constexpr idx_t MEAN_SUBFIELDS_PER_RECORD = 18;
+
+static idx_t EstimateRecords(ClientContext &context, const FunctionData *bind_data) {
+	auto &bind = bind_data->Cast<MarcBindData>();
+	idx_t bytes = 0;
+	try {
+		auto &fs = FileSystem::GetFileSystem(context);
+		// A glob is only still unexpanded on v1.5.x; there the first match is a
+		// fair sample for the rest of the scan.
+		auto paths = ExpandPaths(context, bind.path);
+		for (auto &path : paths) {
+			auto handle = fs.OpenFile(path, FileOpenFlags(FileOpenFlags::FILE_FLAGS_READ));
+			bytes += static_cast<idx_t>(handle->GetFileSize());
+		}
+		// A gzipped dump holds several times its on-disk size.
+		if (!paths.empty() && HasGzExtension(paths.front())) {
+			bytes *= 4;
+		}
+	} catch (...) {
+		// An unreadable or remote-only file is not worth failing a bind over;
+		// the planner simply gets no estimate.
+		return 0;
+	}
+	return bytes / MEAN_RECORD_BYTES;
+}
+
+static unique_ptr<NodeStatistics> RecordCardinality(ClientContext &context, const FunctionData *bind_data) {
+	auto records = EstimateRecords(context, bind_data);
+	if (records == 0) {
+		return nullptr;
+	}
+	return make_uniq<NodeStatistics>(records);
+}
+
+static unique_ptr<NodeStatistics> SubfieldCardinality(ClientContext &context, const FunctionData *bind_data) {
+	auto records = EstimateRecords(context, bind_data);
+	if (records == 0) {
+		return nullptr;
+	}
+	return make_uniq<NodeStatistics>(records * MEAN_SUBFIELDS_PER_RECORD);
+}
+
+#if MARC21_DUCKDB_V2
+//! Report the scan counters to the profiler, so a MARC scan shows up in
+//! EXPLAIN ANALYZE with the numbers a cataloger actually wants: how many
+//! records were read, how the dump splits between MARC-8 and UTF-8, and how
+//! many records failed to decode.  The names match the metrics declared in
+//! MarcRegisterMetrics, which is what puts them in duckdb_available_metrics.
+static void MarcScanGetMetrics(TableFunctionGetMetricsInput &input) {
+	if (!input.global_state) {
+		return;
+	}
+	auto &global = input.global_state->Cast<ScanGlobalState>();
+	auto records = global.records_parsed.load(std::memory_order_relaxed);
+	auto &metrics = input.operator_metrics;
+	metrics.AddExtraInfo("marc_records_parsed", to_string(records));
+	metrics.AddExtraInfo("marc8_records", to_string(global.marc8_records.load(std::memory_order_relaxed)));
+	metrics.AddExtraInfo("marc_utf8_records", to_string(global.utf8_records.load(std::memory_order_relaxed)));
+	metrics.AddExtraInfo("marc_decode_errors", to_string(global.decode_errors.load(std::memory_order_relaxed)));
+}
+
+//! Declare the counters above so they appear in duckdb_available_metrics.
+//! Duplicate registrations are ignored by the engine, so re-loading is safe.
+static void MarcRegisterMetrics(ExtensionLoader &loader) {
+	loader.RegisterMetric({"marc_records_parsed", "uint64", "MARC records decoded by this scan", "records"});
+	loader.RegisterMetric({"marc8_records", "uint64", "Records decoded from MARC-8 (leader/09 blank)", "records"});
+	loader.RegisterMetric({"marc_utf8_records", "uint64", "Records decoded from UTF-8 (leader/09 'a')", "records"});
+	loader.RegisterMetric(
+	    {"marc_decode_errors", "uint64", "Records that failed to decode (skipped when ignore_errors)", "records"});
+}
+#endif
+
+//! Attach the profiler callback to a binary reader.  No-op on v1.5.x, whose
+//! get_metrics callback has a different signature and no extension metrics.
+static void MarcSetMetrics(TableFunction &function) {
+#if MARC21_DUCKDB_V2
+	function.get_metrics = MarcScanGetMetrics;
+#else
+	(void)function;
+#endif
+}
+
+//! Opt a binary reader into v2.0 batch-at-a-time scanning.  No-op on v1.5.x,
+//! which has no such callbacks.
+static void MarcSetBatchScan(TableFunction &function) {
+#if MARC21_DUCKDB_V2
+	function.claim_batch = ScanClaimBatch;
+	function.finish_batch = ScanFinishBatch;
+#else
+	(void)function;
+#endif
+}
+
 //! The macro a statement of the embedded SQL defines, for error messages.
 //! Anything else falls back to the statement's own first line, so a failure
 //! always points at something.
@@ -918,21 +1107,95 @@ string MacroLabel(const SQLStatement &statement) {
 	if (statement.type == StatementType::CREATE_STATEMENT) {
 		auto &info = *statement.Cast<CreateStatement>().info;
 		if (info.type == CatalogType::MACRO_ENTRY || info.type == CatalogType::TABLE_MACRO_ENTRY) {
-			return info.Cast<CreateFunctionInfo>().name;
+			return MarcFunctionName(info.Cast<CreateFunctionInfo>());
 		}
 	}
-	auto text = statement.query.substr(statement.stmt_location, statement.stmt_length);
+	auto text = MarcStatementText(statement);
 	auto line_end = text.find('\n');
 	return line_end == string::npos ? text : text.substr(0, line_end);
 }
 
+//! Parse and register one blob of embedded CREATE MACRO statements.
+//!
+//! The connection is used only to *parse*: each macro is then handed to
+//! ExtensionLoader::RegisterFunction, which writes it to the system catalog
+//! under a system transaction, exactly as the C++-registered functions are.
+//! Executing the CREATE MACRO as SQL instead cannot work once the extension
+//! has a schema of its own -- that schema lives in the system catalog, and a
+//! plain connection is refused there with "Cannot create entry in system
+//! catalog", which failed the whole load. Going through the loader also means
+//! it applies the extension schema itself, so there is nothing to rewrite by
+//! hand.
+//!
+//! One statement at a time, so a failure names the macro that caused it:
+//! registering the batch in one call reports the missing function without
+//! saying which of the 150-odd bodies asked for it.
+void RegisterMacroBlob(ExtensionLoader &loader, Connection &con, const char *sql) {
+	vector<unique_ptr<SQLStatement>> statements;
+	try {
+		statements = con.ExtractStatements(sql);
+	} catch (const std::exception &e) {
+		throw InternalException("marc extension: parsing the embedded macros failed: %s", e.what());
+	}
+	for (auto &statement : statements) {
+		auto label = MacroLabel(*statement);
+		if (statement->type != StatementType::CREATE_STATEMENT) {
+			throw InternalException("marc extension: embedded macro SQL may only CREATE, got %s", label);
+		}
+		auto &info = *statement->Cast<CreateStatement>().info;
+		if (info.type != CatalogType::MACRO_ENTRY && info.type != CatalogType::TABLE_MACRO_ENTRY) {
+			throw InternalException("marc extension: embedded macro SQL may only define macros, got %s", label);
+		}
+		auto &macro_info = info.Cast<CreateMacroInfo>();
+		// Mirror what the engine does for its own built-in macros
+		// (DefaultFunctionGenerator::CreateInternalMacroInfo): mark the entry
+		// internal, and name the default schema explicitly.  A freshly parsed
+		// CREATE MACRO carries no schema at all, and RegisterFunction only
+		// substitutes the extension's schema when it finds the default one --
+		// leaving it unset instead resolves to no schema and faults inside the
+		// catalog.
+		macro_info.internal = true;
+		macro_info.temporary = true;
+		macro_info.SetQualifiedName(QualifiedName(macro_info.GetQualifiedName().Catalog(),
+		                                          Identifier(DEFAULT_SCHEMA), macro_info.GetQualifiedName().Name()));
+		// Catalog documentation (marc/function_docs.hpp).  A macro's parameter
+		// names are already its own, so the entry adds description, example
+		// and categories only.
+		macro_info.descriptions = MarcFunctionDescriptions(MarcFunctionName(macro_info));
+		try {
+			loader.RegisterFunction(macro_info);
+		} catch (const std::exception &e) {
+			throw InternalException("marc extension: registering macro %s failed: %s", label, e.what());
+		}
+	}
+}
+
 void LoadInternal(ExtensionLoader &loader) {
+	// First, before anything registers: every RegisterFunction below lands in
+	// whatever schema this selects, so it has to be chosen up front or the
+	// readers would part company with the scalars.
+	MarcUseExtensionSchema(loader);
+
+	// Each COPY format that has a matching reader gets a FROM side; the reader
+	// is copied off before it is moved into its own registration.
+	MarcCopyReaders copy_readers;
+#if MARC21_DUCKDB_V2
+	MarcRegisterMetrics(loader);
+#endif
+
+	// Every reader takes one VARCHAR path plus named parameters, which is the
+	// shape MarcRegisterReader needs: on v2.0 it hands them to the multi-file
+	// framework as single-file functions, on v1.5.x it registers them directly.
 	TableFunction nested("read_marc", {LogicalType::VARCHAR}, NestedScan, NestedBind, NestedInitGlobal, ScanInitLocal);
 	nested.named_parameters["encoding"] = LogicalType::VARCHAR;
 	nested.named_parameters["tags"] = LogicalType::VARCHAR;
 	nested.named_parameters["ignore_errors"] = LogicalType::BOOLEAN;
 	nested.projection_pushdown = true;
-	loader.RegisterFunction(nested);
+	nested.cardinality = RecordCardinality;
+	MarcSetBatchScan(nested);
+	MarcSetMetrics(nested);
+	copy_readers.marc = nested;
+	MarcRegisterReader(loader, std::move(nested), "read_marc", "MARC");
 
 	TableFunction subfields("read_marc_subfields", {LogicalType::VARCHAR}, SubfieldsScan, SubfieldsBind,
 	                        SubfieldsInitGlobal, SubfieldsInitLocal);
@@ -940,51 +1203,61 @@ void LoadInternal(ExtensionLoader &loader) {
 	subfields.named_parameters["tags"] = LogicalType::VARCHAR;
 	subfields.named_parameters["ignore_errors"] = LogicalType::BOOLEAN;
 	subfields.projection_pushdown = true;
-	loader.RegisterFunction(subfields);
+	subfields.cardinality = SubfieldCardinality;
+	MarcSetBatchScan(subfields);
+	MarcSetMetrics(subfields);
+	MarcRegisterReader(loader, std::move(subfields), "read_marc_subfields", "MARC");
 
 	TableFunction raw("read_marc_raw", {LogicalType::VARCHAR}, RawScan, RawBind, RawInitGlobal, ScanInitLocal);
 	raw.named_parameters["encoding"] = LogicalType::VARCHAR;
 	raw.projection_pushdown = true;
-	loader.RegisterFunction(raw);
+	raw.cardinality = RecordCardinality;
+	MarcSetBatchScan(raw);
+	MarcSetMetrics(raw);
+	MarcRegisterReader(loader, std::move(raw), "read_marc_raw", "MARC");
 
 	TableFunction breaker("read_marc_breaker", {LogicalType::VARCHAR},
 	                      TextScan<marc::ParseBreaker, BREAKER_NAME, false>, TextBind, TextInitGlobal, TextInitLocal);
 	breaker.named_parameters["tags"] = LogicalType::VARCHAR;
 	breaker.projection_pushdown = true;
-	loader.RegisterFunction(breaker);
+	copy_readers.mrk = breaker;
+	MarcRegisterReader(loader, std::move(breaker), "read_marc_breaker", "MARC breaker");
 
 	TableFunction marcxml("read_marcxml", {LogicalType::VARCHAR}, TextScan<marc::ParseMarcXml, MARCXML_NAME, true>,
 	                      TextBind, TextInitGlobal, TextInitLocal);
 	marcxml.named_parameters["tags"] = LogicalType::VARCHAR;
 	marcxml.projection_pushdown = true;
-	loader.RegisterFunction(marcxml);
+	copy_readers.marcxml = marcxml;
+	MarcRegisterReader(loader, std::move(marcxml), "read_marcxml", "MARCXML");
 
 	TableFunction marcjson("read_marcjson", {LogicalType::VARCHAR},
 	                       WholeFileScan<marc::ParseMarcJson, MARCJSON_NAME>, TextBind, TextInitGlobal,
 	                       WholeFileInitLocal);
 	marcjson.named_parameters["tags"] = LogicalType::VARCHAR;
 	marcjson.projection_pushdown = true;
-	loader.RegisterFunction(marcjson);
+	copy_readers.marcjson = marcjson;
+	MarcRegisterReader(loader, std::move(marcjson), "read_marcjson", "MARC-in-JSON");
 
 	TableFunction aleph("read_alephseq", {LogicalType::VARCHAR}, WholeFileScan<marc::ParseAlephSeq, ALEPH_NAME>,
 	                    TextBind, TextInitGlobal, WholeFileInitLocal);
 	aleph.named_parameters["tags"] = LogicalType::VARCHAR;
 	aleph.projection_pushdown = true;
-	loader.RegisterFunction(aleph);
+	MarcRegisterReader(loader, std::move(aleph), "read_alephseq", "Aleph sequential");
 
 	TableFunction microlif("read_microlif", {LogicalType::VARCHAR}, WholeFileScan<marc::ParseMicroLif, MICROLIF_NAME>,
 	                       TextBind, TextInitGlobal, WholeFileInitLocal);
 	microlif.named_parameters["tags"] = LogicalType::VARCHAR;
 	microlif.projection_pushdown = true;
-	loader.RegisterFunction(microlif);
+	MarcRegisterReader(loader, std::move(microlif), "read_microlif", "MicroLIF");
 
-	RegisterMarcCopy(loader);
+	RegisterMarcCopy(loader, std::move(copy_readers));
 	RegisterMarcScalars(loader);
 	RegisterMarcEditScalars(loader);
 	RegisterMarcClusterScalars(loader);
 	RegisterMarcAuthlinkScalars(loader);
 	RegisterMarcZ3950(loader);
 	RegisterMarcXslt(loader);
+	RegisterMarcVariant(loader);
 
 	// Macro layer (nested shapes over the text readers, marc_* helpers) —
 	// plain SQL over the table functions above.  Those bodies call
@@ -999,28 +1272,16 @@ void LoadInternal(ExtensionLoader &loader) {
 	ExtensionHelper::AutoLoadExtension(instance, "core_functions");
 
 	Connection con(instance);
-	vector<unique_ptr<SQLStatement>> statements;
-	try {
-		statements = con.ExtractStatements(marc::MACROS_SQL);
-	} catch (const std::exception &e) {
-		throw InternalException("marc extension: parsing the embedded macros failed: %s", e.what());
-	}
-	// One statement at a time, so a failure names the macro that caused it:
-	// registering the batch in one call reports the missing function without
-	// saying which of the 150-odd bodies asked for it.
-	for (auto &statement : statements) {
-		auto label = MacroLabel(*statement);
-		unique_ptr<MaterializedQueryResult> result;
-		try {
-			result = con.Query(std::move(statement));
-		} catch (const std::exception &e) {
-			throw InternalException("marc extension: registering macro %s failed: %s", label, e.what());
-		}
-		if (result->HasError()) {
-			throw InternalException("marc extension: registering macro %s failed: %s", label,
-			                        result->GetError());
-		}
-	}
+	RegisterMacroBlob(loader, con, marc::MACROS_SQL);
+
+#if MARC21_DUCKDB_V2
+	// The v2.0-only macro layer (NEAREST-join reconciliation).  It is a
+	// separate blob rather than more files under src/macros/ because the
+	// blob above is parsed as a whole: one NEAREST statement in it would stop
+	// the extension loading on v1.5.x altogether, not merely skip a macro.
+	// It runs after the base layer, whose macros these bodies call.
+	RegisterMacroBlob(loader, con, marc::MACROS_V2_SQL);
+#endif
 }
 
 } // namespace

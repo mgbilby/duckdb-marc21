@@ -130,7 +130,7 @@ void RegisterMarcZ3950(ExtensionLoader &loader) {
 	z3950.named_parameters["max_records"] = LogicalType::INTEGER;
 	z3950.named_parameters["timeout"] = LogicalType::INTEGER;
 	z3950.named_parameters["ignore_errors"] = LogicalType::BOOLEAN;
-	loader.RegisterFunction(z3950);
+	MarcRegisterTable(loader, std::move(z3950), "read_z3950");
 }
 
 } // namespace duckdb

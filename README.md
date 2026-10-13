@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![GitHub Release](https://img.shields.io/github/v/release/mgbilby/duckdb-marc21)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/mgbilby/duckdb-marc21/.github%2Fworkflows%2FMainDistributionPipeline.yml)
-[![DuckDB](https://img.shields.io/static/v1?label=duckdb&message=v1.5.4%2B&color=blue)](https://github.com/duckdb/duckdb/releases)
+[![DuckDB](https://img.shields.io/static/v1?label=duckdb&message=v1.5.6%2B&color=blue)](https://github.com/duckdb/duckdb/releases)
 [![Community downloads per week](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fcommunity-extensions.duckdb.org%2Fdownloads-last-week.json&query=%24.marc21&label=downloads%2Fweek&color=brightgreen)](https://duckdb.org/community_extensions/download_metrics)
 
 Read, write, validate, edit, and analyze [MARC 21](https://www.loc.gov/marc/bibliographic/)
@@ -26,13 +26,13 @@ bibliographic data with DuckDB, using filetypes, APIs and catalogs you already k
 | **Reconcile** | authority candidate lookup against VIAF, id.loc.gov and Wikidata | `marc_viaf_candidates`, `marc_idloc_candidates`, `marc_wikidata_candidates`, `marc_reconcile_headings` |
 | **Serials** | 863–865 enumeration expansion and holdings pairing | `marc_expand_863`, `marc_holdings_pairs`, `marc_86x_zip` |
 
-Full documentation in [`docs/REFERENCE.md`](docs/REFERENCE.md).
+Full documentation in [`docs/REFERENCE.md`](docs/REFERENCE.md)
 
 - Pure C++ leverages the speed and power of DuckDB
 - Read Gzip and glob patterns (`catalogue/*.mrc.gz`), parallelize operations in files, and skip character decoding for unselected columns 
 - Built from ISO 2709 and Library of Congress specifications, not prior
-  software (see [`audit/`](audit/).
-- `read_z3950` needs OS-level networking and is unavailable in browser-based builds.
+  software (see [`audit/`](audit))
+- `read_z3950` needs OS-level networking and is unavailable in browser-based builds
 
 ## Installation
 
@@ -87,7 +87,7 @@ SELECT hits, marc_subfield(fields, '245', 'a') AS title
 FROM read_z3950('z3950.loc.gov', 7090, 'VOYAGER', '@attr 1=7 0316769487');
 ```
 
-Full documentation for all the functions can be found in [docs/REFERENCE.md](docs/REFERENCE.md). Workflow recipes (KBART loads, authority flips, heading-change impact, link audits, fuzzy dedupe) are in [docs/RECIPES.md](docs/RECIPES.md), and the FOLIO connector pattern in [docs/FOLIO.md](docs/FOLIO.md).
+Full documentation for all the functions can be found in [docs/REFERENCE.md](docs/REFERENCE.md). Workflow recipes (KBART loads, authority flips, heading-change impact, link audits, fuzzy dedupe) are in [docs/RECIPES.md](docs/RECIPES.md), the FOLIO connector pattern in [docs/FOLIO.md](docs/FOLIO.md), and planned features in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Building
 ### Managing dependencies

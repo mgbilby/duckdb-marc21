@@ -19,6 +19,7 @@
 //! Invalid identifiers yield NULL; invalid tag patterns/regexes are errors.
 
 #include "marc21_extension.hpp"
+#include "marc/compat.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
@@ -286,11 +287,11 @@ static void DiffExec(DataChunk &args, ExpressionState &, Vector &result) {
 
 template <std::string (*FN)(std::string_view)>
 static void NormalizeExec(DataChunk &args, ExpressionState &, Vector &result) {
-	UnaryExecutor::ExecuteWithNulls<string_t, string_t>(
-	    args.data[0], result, args.size(), [&](string_t input, ValidityMask &mask, idx_t idx) {
+	MarcUnaryWithNulls<string_t, string_t>(
+	    args.data[0], result, args.size(), [&](string_t input, bool &is_null) {
 		    auto out = FN(std::string_view(input.GetData(), input.GetSize()));
 		    if (out.empty()) {
-			    mask.SetInvalid(idx);
+			    is_null = true;
 			    return string_t();
 		    }
 		    return StringVector::AddString(result, out);
@@ -386,11 +387,11 @@ static void LccParseExec(DataChunk &args, ExpressionState &, Vector &result) {
 
 template <std::string (*FN)(std::string_view)>
 static void SortKeyExec(DataChunk &args, ExpressionState &, Vector &result) {
-	UnaryExecutor::ExecuteWithNulls<string_t, string_t>(
-	    args.data[0], result, args.size(), [&](string_t input, ValidityMask &mask, idx_t idx) {
+	MarcUnaryWithNulls<string_t, string_t>(
+	    args.data[0], result, args.size(), [&](string_t input, bool &is_null) {
 		    auto out = FN(std::string_view(input.GetData(), input.GetSize()));
 		    if (out.empty()) {
-			    mask.SetInvalid(idx);
+			    is_null = true;
 			    return string_t();
 		    }
 		    return StringVector::AddString(result, out);
@@ -464,44 +465,44 @@ void RegisterMarcEditScalars(ExtensionLoader &loader) {
 	auto fields_type = LogicalType::LIST(MarcFieldStructType());
 	auto V = LogicalType::VARCHAR;
 
-	loader.RegisterFunction(
+	MarcRegisterScalar(loader,
 	    ScalarFunction("marc_add_field", {fields_type, MarcFieldStructType()}, fields_type, AddFieldExec));
-	loader.RegisterFunction(ScalarFunction("marc_remove_fields", {fields_type, V}, fields_type, RemoveFieldsExec));
-	loader.RegisterFunction(
+	MarcRegisterScalar(loader,ScalarFunction("marc_remove_fields", {fields_type, V}, fields_type, RemoveFieldsExec));
+	MarcRegisterScalar(loader,
 	    ScalarFunction("marc_remove_subfield", {fields_type, V, V}, fields_type, RemoveSubfieldExec));
-	loader.RegisterFunction(
+	MarcRegisterScalar(loader,
 	    ScalarFunction("marc_set_subfield", {fields_type, V, V, V}, fields_type, SetSubfieldExec));
-	loader.RegisterFunction(
+	MarcRegisterScalar(loader,
 	    ScalarFunction("marc_replace_values", {fields_type, V, V, V, V}, fields_type, ReplaceValuesExec));
-	loader.RegisterFunction(
+	MarcRegisterScalar(loader,
 	    ScalarFunction("marc_set_indicators", {fields_type, V, V, V}, fields_type, SetIndicatorsExec));
-	loader.RegisterFunction(ScalarFunction("marc_swap_fields", {fields_type, V, V}, fields_type, SwapFieldsExec));
-	loader.RegisterFunction(ScalarFunction("marc_sort_fields", {fields_type}, fields_type, SortFieldsExec));
-	loader.RegisterFunction(
+	MarcRegisterScalar(loader,ScalarFunction("marc_swap_fields", {fields_type, V, V}, fields_type, SwapFieldsExec));
+	MarcRegisterScalar(loader,ScalarFunction("marc_sort_fields", {fields_type}, fields_type, SortFieldsExec));
+	MarcRegisterScalar(loader,
 	    ScalarFunction("marc_rename_subfield", {fields_type, V, V, V}, fields_type, RenameSubfieldExec));
-	loader.RegisterFunction(ScalarFunction("marc_replace_all", {fields_type, LogicalType::LIST(ReplaceRuleType())},
+	MarcRegisterScalar(loader,ScalarFunction("marc_replace_all", {fields_type, LogicalType::LIST(ReplaceRuleType())},
 	                                       fields_type, ReplaceAllExec));
-	loader.RegisterFunction(
+	MarcRegisterScalar(loader,
 	    ScalarFunction("marc_merge", {fields_type, fields_type, V, V, V, V}, fields_type, MergeExec));
-	loader.RegisterFunction(ScalarFunction("marc_diff", {V, fields_type, V, fields_type},
+	MarcRegisterScalar(loader,ScalarFunction("marc_diff", {V, fields_type, V, fields_type},
 	                                       LogicalType::LIST(DiffEntryType()), DiffExec));
 
-	loader.RegisterFunction(ScalarFunction("marc_isbn13", {V}, V, NormalizeExec<marc::NormalizeIsbn>));
-	loader.RegisterFunction(ScalarFunction("marc_issn", {V}, V, NormalizeExec<marc::NormalizeIssn>));
-	loader.RegisterFunction(ScalarFunction("marc_lccn", {V}, V, NormalizeExec<marc::NormalizeLccn>));
-	loader.RegisterFunction(ScalarFunction("marc_oclc", {V}, V, NormalizeExec<marc::NormalizeOclc>));
-	loader.RegisterFunction(ScalarFunction("marc_naco", {V}, V, NormalizeExec<marc::NacoNormalize>));
-	loader.RegisterFunction(ScalarFunction("marc_matchkey", {fields_type}, V, MatchKeyExec));
-	loader.RegisterFunction(ScalarFunction("marc_parse_json", {V}, ParsedRecordType(), ParseJsonExec));
+	MarcRegisterScalar(loader,ScalarFunction("marc_isbn13", {V}, V, NormalizeExec<marc::NormalizeIsbn>));
+	MarcRegisterScalar(loader,ScalarFunction("marc_issn", {V}, V, NormalizeExec<marc::NormalizeIssn>));
+	MarcRegisterScalar(loader,ScalarFunction("marc_lccn", {V}, V, NormalizeExec<marc::NormalizeLccn>));
+	MarcRegisterScalar(loader,ScalarFunction("marc_oclc", {V}, V, NormalizeExec<marc::NormalizeOclc>));
+	MarcRegisterScalar(loader,ScalarFunction("marc_naco", {V}, V, NormalizeExec<marc::NacoNormalize>));
+	MarcRegisterScalar(loader,ScalarFunction("marc_matchkey", {fields_type}, V, MatchKeyExec));
+	MarcRegisterScalar(loader,ScalarFunction("marc_parse_json", {V}, ParsedRecordType(), ParseJsonExec));
 
-	loader.RegisterFunction(ScalarFunction("marc_rank", {V, fields_type}, RankType(), RankExec));
-	loader.RegisterFunction(ScalarFunction("marc_new_record", {V}, ParsedRecordType(), NewRecordExec));
-	loader.RegisterFunction(ScalarFunction("marc_rda_expand", {fields_type}, fields_type, RdaExpandExec));
-	loader.RegisterFunction(ScalarFunction("marc_generate_33x", {V, fields_type}, fields_type, Gen33xExec));
-	loader.RegisterFunction(ScalarFunction("marc_lcc_parse", {V}, LccPartsType(), LccParseExec));
-	loader.RegisterFunction(ScalarFunction("marc_lcc_sortkey", {V}, V, SortKeyExec<marc::LccSortKey>));
-	loader.RegisterFunction(ScalarFunction("marc_ddc_sortkey", {V}, V, SortKeyExec<marc::DdcSortKey>));
-	loader.RegisterFunction(ScalarFunction("marc_cutter_valid", {V}, LogicalType::BOOLEAN, CutterValidExec));
+	MarcRegisterScalar(loader,ScalarFunction("marc_rank", {V, fields_type}, RankType(), RankExec));
+	MarcRegisterScalar(loader,ScalarFunction("marc_new_record", {V}, ParsedRecordType(), NewRecordExec));
+	MarcRegisterScalar(loader,ScalarFunction("marc_rda_expand", {fields_type}, fields_type, RdaExpandExec));
+	MarcRegisterScalar(loader,ScalarFunction("marc_generate_33x", {V, fields_type}, fields_type, Gen33xExec));
+	MarcRegisterScalar(loader,ScalarFunction("marc_lcc_parse", {V}, LccPartsType(), LccParseExec));
+	MarcRegisterScalar(loader,ScalarFunction("marc_lcc_sortkey", {V}, V, SortKeyExec<marc::LccSortKey>));
+	MarcRegisterScalar(loader,ScalarFunction("marc_ddc_sortkey", {V}, V, SortKeyExec<marc::DdcSortKey>));
+	MarcRegisterScalar(loader,ScalarFunction("marc_cutter_valid", {V}, LogicalType::BOOLEAN, CutterValidExec));
 }
 
 } // namespace duckdb

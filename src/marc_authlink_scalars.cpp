@@ -12,6 +12,7 @@
 //! test/cpp/authlink_test.cpp; the workflow is documented in docs/LINKING.md.
 
 #include "marc21_extension.hpp"
+#include "marc/compat.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
@@ -84,9 +85,9 @@ void RegisterMarcAuthlinkScalars(ExtensionLoader &loader) {
 	auto fields_type = LogicalType::LIST(MarcFieldStructType());
 	auto V = LogicalType::VARCHAR;
 
-	loader.RegisterFunction(
+	MarcRegisterScalar(loader,
 	    ScalarFunction("marc_set_linked_uri", {fields_type, V, V, V, V}, fields_type, SetLinkedUriExec));
-	loader.RegisterFunction(
+	MarcRegisterScalar(loader,
 	    ScalarFunction("marc_clear_linked_uris", {fields_type, V, V}, fields_type, ClearLinkedUrisExec));
 }
 

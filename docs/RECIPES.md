@@ -312,3 +312,102 @@ this API is deliberately not a batch interface). When the worklist grows
 past a few hundred records, switch to the import-profile batch path in
 [connectors/alma.md](connectors/alma.md) and keep the API round trip for
 spot checks.
+
+## 9. Landing a catalogue as a working copy
+
+Every recipe above re-reads the `.mrc` file each time it runs. That is the
+right default for a one-off batch job, and the wrong one for a catalogue you
+interrogate all week: the same 900 MB dump gets parsed for the RDA profile, for
+the heading-change report, for the link audit, and for whatever the collections
+librarian asks for on Thursday. Parse it once into a DuckDB table instead, and
+keep the nested `fields` column so every macro in
+[REFERENCE.md](REFERENCE.md) still works against it.
+
+The one decision worth making deliberately is the **order** records are landed
+in. DuckDB stores a table in row groups of 122,880 rows and keeps a min/max
+summary of each column per group; a query whose `WHERE` clause falls outside a
+group's range skips that group entirely. A catalogue landed in the order the
+dump happened to be in gives every row group the same useless range — so sort
+on the column your department filters by, usually the LC call number or the
+control number:
+
+```sql
+CREATE TABLE catalogue AS
+SELECT control_number,
+       marc_subfield(fields, '245', 'a')   AS title,
+       marc_subfield(fields, '100', 'a')   AS main_entry,
+       marc_subfield(fields, '050', 'a')   AS call_number,
+       marc_lcc_sortkey(marc_subfield(fields, '050', 'a')) AS lcc_sort,
+       marc_subfields(fields, '650', 'a')  AS subjects,
+       marc_control_field(fields, '008')   AS f008,
+       leader,
+       fields
+FROM read_marc('catalogue/*.mrc.gz')
+ORDER BY lcc_sort, control_number;
+```
+
+`marc_lcc_sortkey` is what keeps classes contiguous: plain string order puts
+`PS10` before `PS8`, shelflist order does not. Keep it as a column as well as
+using it to sort, so range work has a key that compares correctly. With that
+in place the class-based questions read a handful of row groups instead of the
+whole table:
+
+```sql
+-- Collection analysis: American literature 1900- , PS3500–PS3576
+SELECT substr(call_number, 1, 6) AS class, count(*) AS titles
+FROM catalogue
+WHERE lcc_sort >= marc_lcc_sortkey('PS3500')
+  AND lcc_sort <  marc_lcc_sortkey('PS3577')
+GROUP BY class ORDER BY class;
+
+-- The Thursday request: pull these bibs.  A table sorted by call number does
+-- not cluster control numbers, so this one reads the table; sort a second copy
+-- (or the Parquet extract below) by control_number if it is a weekly job.
+SELECT control_number, title, call_number
+FROM catalogue
+WHERE control_number IN ('ocm00000001', 'ocm00000002', 'ocm00000003');
+```
+
+A second table at subfield grain covers the note-and-heading questions, sorted
+by tag so that restricting to one field skips everything else:
+
+```sql
+CREATE TABLE subfields AS
+SELECT control_number, tag, code, value
+FROM read_marc_subfields('catalogue/*.mrc.gz')
+ORDER BY tag, code, control_number;
+
+-- Vendor-load artifacts in the notes.  `tag = '500'` does the skipping; the
+-- substring test then runs over what is left, not over the whole catalogue.
+SELECT control_number, value
+FROM subfields
+WHERE tag = '500' AND contains(value, '[electronic resource]');
+```
+
+The macros keep working on the nested column, so the earlier recipes port over
+unchanged — recipe 7's RDA profile becomes:
+
+```sql
+SELECT issue, count(*) AS records
+FROM (SELECT unnest(marc_rda_check(leader, fields)) AS issue FROM catalogue)
+GROUP BY issue ORDER BY records DESC;
+```
+
+Notes:
+* land coded columns as their own narrow columns — `marc_record_type(leader)`,
+  `marc_control_pos(f008, 35, 3)` for the language, `substr(call_number, 1, 2)`
+  for the LC class. They are a few characters wide, cost nothing, and are the
+  columns whose per-row-group summaries are selective enough to skip data;
+* for an extract other people will query — a discovery feed, a consortial
+  snapshot — write sorted Parquet rather than sharing the `.duckdb` file:
+  `COPY (SELECT ... ORDER BY ...) TO 'share/catalogue.parquet' (FORMAT parquet,
+  WRITE_BLOOM_FILTER true)`. Parquet adds a per-row-group Bloom filter of the
+  exact values, which is what makes `control_number IN (...)` lookups skip
+  groups without needing the file sorted on that column;
+* re-landing after each load is simpler than incremental updates and fast
+  enough at catalogue scale; partition the Parquet copy by load month
+  (`PARTITION_BY (load_month)`) when the collection grows by batch.
+
+How much a given predicate actually skips — and which of this is DuckDB v1.5.6
+behavior versus v2.0's much wider pruning — is set out in
+[DUCKDB2.md](DUCKDB2.md) §1.

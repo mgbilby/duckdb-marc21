@@ -39,6 +39,7 @@ a recipe or a thin macro that composes, not a reimplementation.
 | HTTP POST/PUT (ILS write-back) | `http_client` / `http_request` (community) | `COPY` produces the MARCXML/JSON body; the request extension delivers it (Alma `PUT /almaws/v1/bibs/{mms_id}`, FOLIO imports) |
 | HTTP(S)/S3 reading, gzip | `httpfs` (core) | every reader takes URLs; SRU/OAI macros build URLs over `read_marcxml` |
 | JSON querying | `json` (core) | `marc_jsonld`/`marc_bibframe_jsonld` emit JSON text the `json` operators consume; API shapers use `read_json`; the extension loads without it by design |
+| Multi-file scanning, globbing, hive partitioning | DuckDB's multi-file framework (core, v2.0) | every reader is a single-file function wrapped by it, so file lists, `union_by_name`, partition columns and `filename` come from the engine rather than from marc21 ([DUCKDB2.md](DUCKDB2.md)) |
 | Other databases (FOLIO Postgres, SQLite, ES) | `postgres` / `sqlite` scanners (core), `elasticsearch` (community) | `ATTACH` the ILS database; `marc_parse_json` bridges its rows into the marc_* surface |
 | RDF/SPARQL | `rdf` (community) | BIBFRAME and EDM crosswalk outputs are RDF/XML — load them there for graph queries |
 | Remote filesystems | `sshfs`, `webdavfs`, `cache_httpfs` (community) | point the readers at dumps where they live |

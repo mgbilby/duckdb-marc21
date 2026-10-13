@@ -1,0 +1,146 @@
+# name: test/sql/marc_variant.test
+# description: marc_variant / marc_variant_record — a MARC record as VARIANT
+# group: [marc]
+
+require marc21
+
+statement ok
+SET VARIABLE utf8 = 'test/data/sample_utf8.mrc';
+
+# ---------------------------------------------------------------------------
+# Shape of the whole record
+# ---------------------------------------------------------------------------
+
+# Keys are emitted lexicographically, so the root is always OBJECT(fields, leader)
+query I
+SELECT variant_typeof(marc_variant(leader, fields))
+FROM read_marc(getvariable('utf8')) ORDER BY record_no;
+----
+OBJECT(fields, leader)
+OBJECT(fields, leader)
+OBJECT(fields, leader)
+
+# The leader round-trips verbatim
+query I
+SELECT variant_extract(marc_variant(leader, fields), 'leader')::VARCHAR
+FROM read_marc(getvariable('utf8')) ORDER BY record_no;
+----
+00397nam a2200133 a 4500
+00191nam a2200073 a 4500
+00084nam a2200049 a 4500
+
+# fields is an array with one entry per field, in record order
+query I
+SELECT variant_typeof(variant_extract(marc_variant(leader, fields), 'fields'))
+FROM read_marc(getvariable('utf8')) ORDER BY record_no;
+----
+ARRAY(9)
+ARRAY(4)
+ARRAY(2)
+
+# ---------------------------------------------------------------------------
+# The point of VARIANT: control and data fields carry different key sets
+# ---------------------------------------------------------------------------
+
+statement ok
+CREATE VIEW rec3 AS
+SELECT variant_extract(marc_variant(leader, fields), 'fields') AS f
+FROM read_marc(getvariable('utf8')) WHERE record_no = 3;
+
+# 001 is a control field: no ind1/ind2/subfields keys at all (not NULL ones)
+query I
+SELECT variant_typeof(variant_extract(f, 1::UINTEGER)) FROM rec3;
+----
+OBJECT(tag, value)
+
+# 245 is a data field: indicators and subfields, no control value
+query I
+SELECT variant_typeof(variant_extract(f, 2::UINTEGER)) FROM rec3;
+----
+OBJECT(ind1, ind2, subfields, tag)
+
+query II
+SELECT variant_extract(variant_extract(f, 1::UINTEGER), 'tag')::VARCHAR,
+       variant_extract(variant_extract(f, 1::UINTEGER), 'value')::VARCHAR
+FROM rec3;
+----
+001	ocm00000003
+
+query III
+SELECT variant_extract(variant_extract(f, 2::UINTEGER), 'tag')::VARCHAR,
+       variant_extract(variant_extract(f, 2::UINTEGER), 'ind1')::VARCHAR,
+       variant_extract(variant_extract(f, 2::UINTEGER), 'ind2')::VARCHAR
+FROM rec3;
+----
+245	1	4
+
+# ---------------------------------------------------------------------------
+# Subfields keep their order and repetition (UTF-8 values survive)
+# ---------------------------------------------------------------------------
+
+statement ok
+CREATE VIEW rec1 AS
+SELECT variant_extract(marc_variant(leader, fields), 'fields') AS f
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+
+# fields[5] is the 245; its first subfield is $a
+query II
+SELECT variant_extract(variant_extract(variant_extract(variant_extract(f, 6::UINTEGER), 'subfields'),
+                                       1::UINTEGER), 'code')::VARCHAR,
+       variant_extract(variant_extract(variant_extract(variant_extract(f, 6::UINTEGER), 'subfields'),
+                                       1::UINTEGER), 'value')::VARCHAR
+FROM rec1;
+----
+a	Łódź and the river :
+
+# fields[6] is the first 650, whose $z repeats — subfield 2 is the second $z
+query II
+SELECT variant_extract(variant_extract(variant_extract(variant_extract(f, 7::UINTEGER), 'subfields'),
+                                       3::UINTEGER), 'code')::VARCHAR,
+       variant_extract(variant_extract(variant_extract(variant_extract(f, 7::UINTEGER), 'subfields'),
+                                       3::UINTEGER), 'value')::VARCHAR
+FROM rec1;
+----
+z	Łódź.
+
+query I
+SELECT variant_typeof(variant_extract(variant_extract(f, 7::UINTEGER), 'subfields')) FROM rec1;
+----
+ARRAY(3)
+
+# ---------------------------------------------------------------------------
+# marc_variant_record over the STRUCT(leader, fields) record shape
+# ---------------------------------------------------------------------------
+
+query I
+SELECT variant_typeof(marc_variant_record({'leader': leader, 'fields': fields}))
+FROM read_marc(getvariable('utf8')) WHERE record_no = 3;
+----
+OBJECT(fields, leader)
+
+query I
+SELECT variant_extract(marc_variant_record({'leader': leader, 'fields': fields}), 'leader')::VARCHAR
+FROM read_marc(getvariable('utf8')) WHERE record_no = 3;
+----
+00084nam a2200049 a 4500
+
+# ---------------------------------------------------------------------------
+# NULLs
+# ---------------------------------------------------------------------------
+
+query I
+SELECT marc_variant(leader, NULL) IS NULL FROM read_marc(getvariable('utf8')) WHERE record_no = 3;
+----
+true
+
+query I
+SELECT marc_variant_record(NULL) IS NULL;
+----
+true
+
+# A record with every field stripped is still an object, with an empty array
+query I
+SELECT variant_typeof(variant_extract(marc_variant(leader, marc_remove_fields(fields, '...')), 'fields'))
+FROM read_marc(getvariable('utf8')) WHERE record_no = 3;
+----
+ARRAY(0)

@@ -1,0 +1,205 @@
+# name: test/sql/marc_nearest.test
+# description: top-k candidate matching as a NEAREST join (src/macros_v2/nearest.sql) — DuckDB v2.0 only
+# group: [marc]
+
+require marc21
+
+# sqllogictest has no "require <duckdb version>" directive, and the macros
+# under test parse only on v2.0 (the NEAREST BY join clause), so the file
+# gates on an environment variable the v2.0 build sets.  Unset — every v1.5.x
+# run — the whole file is skipped rather than failing on missing macros.
+require-env MARC21_DUCKDB_V2
+
+statement ok
+SET VARIABLE utf8 = 'test/data/sample_utf8.mrc';
+
+# Every macro of the v2.0-only layer is registered.
+query I
+SELECT count(DISTINCT function_name) FROM duckdb_functions()
+WHERE function_name IN ('marc_nearest_key', 'marc_nearest_recs',
+                        'marc_nearest_dupes', 'marc_nearest_matches',
+                        'marc_nearest_headings', 'marc_nearest_sql_quote',
+                        'marc_nearest_matches_sql', 'marc_nearest_matches_k');
+----
+8
+
+# ---------------------------------------------------------------------------
+# The ranking key and the per-record projection
+# ---------------------------------------------------------------------------
+
+# marc_nearest_key is the title half of marc_matchkey: NACO-normalized
+# 245 $a $b, without the ISBN/year tail the match key appends.
+query II
+SELECT marc_nearest_key(fields), marc_matchkey(fields)
+FROM read_marc(getvariable('utf8')) WHERE record_no = 1;
+----
+LODZ AND THE RIVER A STUDY	LODZ AND THE RIVER A STUDY||
+
+# Record 3 has a 245 $a and no $b — no trailing blank from the absent $b.
+query I
+SELECT marc_nearest_key(fields)
+FROM read_marc(getvariable('utf8')) WHERE record_no = 3;
+----
+THE EMPTY RECORD
+
+# Non-Latin titles keep their script (NACO folds diacritics and punctuation,
+# not scripts), so they still rank.
+query II
+SELECT marc_nearest_key(fields) IS NOT NULL,
+       marc_nearest_key(fields) = marc_naco('日本の歴史 /')
+FROM read_marc(getvariable('utf8')) WHERE record_no = 2;
+----
+true	true
+
+# One row per record, both matching signals present.
+query II
+SELECT count(*), count(tkey) FROM marc_nearest_recs(getvariable('utf8'));
+----
+3	3
+
+# ---------------------------------------------------------------------------
+# marc_nearest_dupes: top-k partners inside one corpus
+# ---------------------------------------------------------------------------
+
+# Three records, so every record's top-6 is the whole file; the record's own
+# row is filtered out, leaving two partners each.
+query I
+SELECT count(*) FROM marc_nearest_dupes(getvariable('utf8'));
+----
+6
+
+# No record is ever its own partner.
+query I
+SELECT count(*) FROM marc_nearest_dupes(getvariable('utf8'))
+WHERE file_a = file_b AND record_no_a = record_no_b;
+----
+0
+
+# Record 1's best partner is record 3 (both Latin titles); record 2 is CJK and
+# scores exactly 0 against both, so it can never rank first here.
+query II
+SELECT record_no_b, similarity > 0 FROM marc_nearest_dupes(getvariable('utf8'))
+WHERE record_no_a = 1 ORDER BY similarity DESC LIMIT 1;
+----
+3	true
+
+# Same threshold behaviour as marc_dedupe_candidates: no pair of this file
+# reaches 0.7 and no two records share a match key.
+query I
+SELECT count(*) FROM marc_nearest_dupes(getvariable('utf8'), min_similarity := 0.7);
+----
+0
+
+# A four-record file: sample_utf8.mrc with a true duplicate of its first
+# record appended.
+statement ok
+COPY (SELECT leader, fields FROM read_marc(getvariable('utf8'))
+      UNION ALL
+      SELECT leader, fields FROM read_marc(getvariable('utf8')) WHERE record_no = 1)
+TO '{TEST_DIR}/nearest_dup.mrc' (FORMAT marc);
+
+# The duplicate is reported from both sides — a top-k join is per record, so
+# the pair yields two rows (where marc_dedupe_candidates emits each unordered
+# pair a single time), each with similarity 1.0 and an equal match key.  The
+# assertion avoids record numbers: which of the two copies UNION ALL wrote
+# first is not something the COPY above promises.
+query II
+SELECT count(*), bool_and(similarity = 1.0 AND same_matchkey AND title_a = title_b)
+FROM marc_nearest_dupes('{TEST_DIR}/nearest_dup.mrc', min_similarity := 0.7);
+----
+2	true
+
+# ---------------------------------------------------------------------------
+# marc_nearest_matches: top-k across two corpora
+# ---------------------------------------------------------------------------
+
+# Four query records against three candidates: k is 5, so every query record
+# takes the whole target file.
+query I
+SELECT count(*) FROM marc_nearest_matches('{TEST_DIR}/nearest_dup.mrc',
+                                          getvariable('utf8'));
+----
+12
+
+# At threshold 1.0 only identical records survive: all four query records,
+# the appended duplicate included, resolve onto their own title in the
+# target file.
+query II
+SELECT count(*), bool_and(title_q = title_t AND same_matchkey)
+FROM marc_nearest_matches('{TEST_DIR}/nearest_dup.mrc', getvariable('utf8'),
+                          min_similarity := 1.0);
+----
+4	true
+
+# ---------------------------------------------------------------------------
+# marc_nearest_headings: top-k candidate labels per heading
+# ---------------------------------------------------------------------------
+
+# sample_utf8.mrc has four headings (one 100, three 650), each of which takes
+# the three nearest of the four candidate labels.
+query I
+SELECT count(*) FROM marc_nearest_headings(getvariable('utf8'),
+    ['Müller, Anna, 1970-', 'Rivers', 'Cities and towns', 'Smith, John']);
+----
+12
+
+# The 650 _7 heading is "Rivers." and NACO-matches the bare label exactly.
+query III
+SELECT heading, label, similarity = 1.0
+FROM marc_nearest_headings(getvariable('utf8'),
+    ['Müller, Anna, 1970-', 'Rivers', 'Cities and towns', 'Smith, John'])
+WHERE marc_naco(heading) = 'RIVERS'
+ORDER BY similarity DESC LIMIT 1;
+----
+Rivers.	Rivers	true
+
+# The name heading carries $e author beyond the label, so it matches high but
+# not exactly — the case NACO equality alone would miss.
+query II
+SELECT label, similarity > 0.8 AND similarity < 1.0
+FROM marc_nearest_headings(getvariable('utf8'),
+    ['Müller, Anna, 1970-', 'Rivers', 'Cities and towns', 'Smith, John'])
+WHERE heading LIKE 'M%'
+ORDER BY similarity DESC LIMIT 1;
+----
+Müller, Anna, 1970-	true
+
+# ---------------------------------------------------------------------------
+# Arbitrary k, deferred through query()
+# ---------------------------------------------------------------------------
+
+# k reaches the NEAREST clause as the literal the grammar requires.
+query I
+SELECT marc_nearest_matches_sql('a.mrc', 'b.mrc', 3)
+       LIKE '%EXACT NEAREST 3 BY SIMILARITY%';
+----
+true
+
+# Paths are embedded as quoted literals, quotes doubled.
+query I
+SELECT marc_nearest_matches_sql('it' || chr(39) || 's.mrc', 'b.mrc', 3)
+       LIKE '%marc_nearest_recs(''it''''s.mrc'')%';
+----
+true
+
+# A k the NEAREST clause could not take is rejected by name here, rather than
+# as a syntax error in generated SQL the caller never wrote.
+statement error
+SELECT marc_nearest_matches_sql('a.mrc', 'b.mrc', 0);
+----
+marc_nearest_matches_sql: k must be a positive integer
+
+statement error
+SELECT marc_nearest_matches_sql('a.mrc', 'b.mrc', 1.5);
+----
+marc_nearest_matches_sql: k must be a positive integer
+
+# k = 1: one row per query record, each the target it is identical to (the
+# appended duplicate included).  Paths are literals because query() parses
+# the composed statement when the macro is used.
+query II
+SELECT count(*), bool_and(title_q = title_t AND similarity = 1.0)
+FROM marc_nearest_matches_k('{TEST_DIR}/nearest_dup.mrc',
+                            'test/data/sample_utf8.mrc', 1);
+----
+4	true

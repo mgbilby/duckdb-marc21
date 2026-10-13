@@ -260,7 +260,8 @@ static void MarcCopyFinalize(ClientContext &, FunctionData &bind_data, GlobalFun
 } // namespace
 
 template <MarcOutputFormat FMT>
-static void RegisterOne(ExtensionLoader &loader, const char *name, const char *ext) {
+static void RegisterOne(ExtensionLoader &loader, const char *name, const char *ext, TableFunction reader,
+                        const char *reader_type) {
 	CopyFunction function(name);
 	function.copy_to_bind = MarcCopyBind<FMT>;
 	function.copy_to_initialize_global = MarcCopyInitGlobal;
@@ -269,14 +270,15 @@ static void RegisterOne(ExtensionLoader &loader, const char *name, const char *e
 	function.copy_to_combine = MarcCopyCombine;
 	function.copy_to_finalize = MarcCopyFinalize;
 	function.extension = ext;
+	MarcSetCopyFrom(function, std::move(reader), name, reader_type);
 	loader.RegisterFunction(function);
 }
 
-void RegisterMarcCopy(ExtensionLoader &loader) {
-	RegisterOne<MarcOutputFormat::ISO2709>(loader, "marc", "mrc");
-	RegisterOne<MarcOutputFormat::MARCXML>(loader, "marcxml", "xml");
-	RegisterOne<MarcOutputFormat::MRK>(loader, "mrk", "mrk");
-	RegisterOne<MarcOutputFormat::MARCJSON>(loader, "marcjson", "json");
+void RegisterMarcCopy(ExtensionLoader &loader, MarcCopyReaders readers) {
+	RegisterOne<MarcOutputFormat::ISO2709>(loader, "marc", "mrc", std::move(readers.marc), "MARC");
+	RegisterOne<MarcOutputFormat::MARCXML>(loader, "marcxml", "xml", std::move(readers.marcxml), "MARCXML");
+	RegisterOne<MarcOutputFormat::MRK>(loader, "mrk", "mrk", std::move(readers.mrk), "MARC breaker");
+	RegisterOne<MarcOutputFormat::MARCJSON>(loader, "marcjson", "json", std::move(readers.marcjson), "MARC-in-JSON");
 }
 
 } // namespace duckdb

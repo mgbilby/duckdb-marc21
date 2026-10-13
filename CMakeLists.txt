@@ -17,8 +17,23 @@ foreach(MARC21_MACRO_FILE ${MARC21_EXTRA_MACRO_FILES})
   file(READ ${MARC21_MACRO_FILE} MARC21_ONE_MACRO_FILE)
   string(APPEND MARC21_MACROS_SQL "\n" "${MARC21_ONE_MACRO_FILE}")
 endforeach()
+# src/macros_v2/*.sql is a second, separate blob: those bodies use SQL that only
+# DuckDB v2.0 parses (NEAREST joins).  It has to stay out of MACROS_SQL because
+# the extension parses that blob as a whole at load, so a single v2.0-only
+# statement in it would not merely skip a macro on v1.5.x -- it would make the
+# extension fail to load at all.  The loader runs this one only on v2.0, and
+# after the base macros, which these bodies call.
+file(GLOB MARC21_V2_MACRO_FILES ${CMAKE_CURRENT_SOURCE_DIR}/src/macros_v2/*.sql)
+list(SORT MARC21_V2_MACRO_FILES)
+set(MARC21_MACROS_V2_SQL "")
+foreach(MARC21_MACRO_FILE ${MARC21_V2_MACRO_FILES})
+  file(READ ${MARC21_MACRO_FILE} MARC21_ONE_MACRO_FILE)
+  string(APPEND MARC21_MACROS_V2_SQL "\n" "${MARC21_ONE_MACRO_FILE}")
+endforeach()
+
 file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/marc21_gen/marc/macros_sql.hpp
-     "// GENERATED from src/macros.sql by CMake; do not edit.\n#pragma once\nnamespace marc {\ninline constexpr const char *MACROS_SQL = R\"MARCSQL(\n${MARC21_MACROS_SQL})MARCSQL\";\n} // namespace marc\n")
+     "// GENERATED from src/macros.sql by CMake; do not edit.\n#pragma once\nnamespace marc {\ninline constexpr const char *MACROS_SQL = R\"MARCSQL(\n${MARC21_MACROS_SQL})MARCSQL\";\n"
+     "inline constexpr const char *MACROS_V2_SQL = R\"MARCSQLV2(\n${MARC21_MACROS_V2_SQL})MARCSQLV2\";\n} // namespace marc\n")
 
 # Embed the XSLT crosswalk catalog (xslt/registry.tsv), every stylesheet it
 # names, and the shared helper library, as one generated header at configure
@@ -118,6 +133,8 @@ set(EXTENSION_SOURCES
     src/marc_authlink_scalars.cpp
     src/marc_z3950.cpp
     src/marc_xslt.cpp
+    src/marc_variant.cpp
+    src/marc_function_docs.cpp
     src/core/avram.cpp
     src/core/marcspec.cpp
     src/core/edit.cpp

@@ -1,0 +1,74 @@
+# name: test/sql/marc_function_docs.test
+# description: every marc21 function carries catalog documentation in duckdb_functions()
+# group: [marc]
+
+require marc21
+
+# An agent connected to a database learns what marc21 offers from
+# duckdb_functions() alone, and the community-extensions page builds its
+# "Added Functions" table from the same rows.  These checks fail the build when
+# a function is added without an entry in src/marc_function_docs.cpp.
+
+statement ok
+CREATE TEMP VIEW marc_fns AS
+SELECT function_name, function_type, description, examples, categories, parameters, parameter_types
+FROM duckdb_functions()
+WHERE (function_name LIKE 'marc\_%' ESCAPE '\'
+       OR function_name IN ('read_marc', 'read_marc_subfields', 'read_marc_raw', 'read_marc_breaker',
+                            'read_marcxml', 'read_marcjson', 'read_alephseq', 'read_microlif', 'read_z3950'))
+  AND function_type IN ('scalar', 'table', 'macro', 'table_macro');
+
+# The view is not trivially empty
+query I
+SELECT count(*) > 150 FROM marc_fns;
+----
+true
+
+# Every function has a description ...
+query II
+SELECT function_name, function_type FROM marc_fns WHERE description IS NULL OR description = '' ORDER BY ALL;
+----
+
+# ... on one line: the community-extensions page keeps only the first
+query I
+SELECT function_name FROM marc_fns WHERE contains(description, chr(10)) ORDER BY ALL;
+----
+
+# ... with at least one example and one category
+query I
+SELECT function_name FROM marc_fns WHERE len(examples) = 0 OR len(categories) = 0 ORDER BY ALL;
+----
+
+# No placeholder parameter names: f(col0, col1) tells a caller nothing
+query II
+SELECT function_name, parameters FROM marc_fns
+WHERE len(list_filter(parameters, lambda p: regexp_full_match(p, 'col[0-9]+'))) > 0
+ORDER BY ALL;
+----
+
+# A reader keeps its named parameters alongside the positional name, each
+# paired with its own type (the names are matched to the types by position)
+query II
+SELECT list_has_all(parameters, ['path', 'encoding', 'tags', 'ignore_errors']),
+       parameter_types[list_position(parameters, 'ignore_errors')]
+FROM marc_fns WHERE function_name = 'read_marc';
+----
+true	BOOLEAN
+
+query II
+SELECT parameters[1:4], parameter_types[list_position(parameters, 'timeout')]
+FROM marc_fns WHERE function_name = 'read_z3950';
+----
+[host, port, database, query]	INTEGER
+
+# C++ scalars report real argument names
+query I
+SELECT parameters FROM marc_fns WHERE function_name = 'marc_set_subfield';
+----
+[fields, tagpat, code, value]
+
+# Macros keep their own parameter names
+query I
+SELECT parameters FROM marc_fns WHERE function_name = 'marc_subfield';
+----
+[fields, tag_, code_]

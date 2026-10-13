@@ -8,6 +8,7 @@
 #include "marc/compat.hpp"
 
 #include "duckdb.hpp"
+#include "duckdb/execution/expression_executor.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
@@ -116,7 +117,7 @@ struct MarcSpecBindData : public FunctionData {
 	}
 };
 
-static unique_ptr<FunctionData> MarcSpecBind(ClientContext &context, ScalarFunction &,
+static unique_ptr<FunctionData> MarcSpecBind(ClientContext &context,
                                              vector<unique_ptr<Expression>> &arguments) {
 	auto bind = make_uniq<MarcSpecBindData>();
 	if (arguments[2]->IsFoldable()) {
@@ -172,7 +173,7 @@ struct AvramBindData : public FunctionData {
 	}
 };
 
-static unique_ptr<FunctionData> AvramBind(ClientContext &context, ScalarFunction &,
+static unique_ptr<FunctionData> AvramBind(ClientContext &context,
                                           vector<unique_ptr<Expression>> &arguments) {
 	auto bind = make_uniq<AvramBindData>();
 	if (arguments[2]->IsFoldable()) {
@@ -190,7 +191,7 @@ static unique_ptr<FunctionData> AvramBind(ClientContext &context, ScalarFunction
 
 static void AvramExec(DataChunk &args, ExpressionState &state, Vector &result) {
 	auto &func_expr = state.expr.Cast<BoundFunctionExpression>();
-	auto &bind = func_expr.bind_info->Cast<AvramBindData>();
+	auto &bind = MarcBoundBindData(func_expr).Cast<AvramBindData>();
 	for (idx_t i = 0; i < args.size(); i++) {
 		auto leader = args.data[0].GetValue(i);
 		auto fields = args.data[1].GetValue(i);
@@ -224,12 +225,12 @@ void RegisterMarcScalars(ExtensionLoader &loader) {
 	auto list_varchar = LogicalType::LIST(LogicalType::VARCHAR);
 
 	ScalarFunction spec("marc_spec", {LogicalType::VARCHAR, fields_type, LogicalType::VARCHAR}, list_varchar,
-	                    MarcSpecExec, MarcSpecBind);
-	loader.RegisterFunction(spec);
+	                    MarcSpecExec, MarcScalarBind<MarcSpecBind>);
+	MarcRegisterScalar(loader, spec);
 
 	ScalarFunction avram("marc_validate_avram", {LogicalType::VARCHAR, fields_type, LogicalType::VARCHAR},
-	                     list_varchar, AvramExec, AvramBind);
-	loader.RegisterFunction(avram);
+	                     list_varchar, AvramExec, MarcScalarBind<AvramBind>);
+	MarcRegisterScalar(loader, avram);
 }
 
 } // namespace duckdb
