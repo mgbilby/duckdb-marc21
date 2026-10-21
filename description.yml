@@ -3,7 +3,7 @@
 extension:
   name: marc21
   description: Read, write, validate and edit MARC 21 bibliographic data (ISO 2709, MARCXML, MARC-in-JSON, breaker, Aleph; UTF-8 and MARC-8)
-  version: 1.5.6
+  version: 2.0.0
   language: C++
   build: cmake
   license: MIT
@@ -13,11 +13,10 @@ extension:
 repo:
   github: mgbilby/duckdb-marc21
   ref: REPLACE_WITH_COMMIT_SHA
-  # Commit the registry builds against a DuckDB other than the current stable
-  # (i.e. the v2.0 pre-release).  scripts/build.py in duckdb/community-extensions
-  # skips prerelease validation entirely when this is absent, so leaving it unset
-  # means a v2.0 regression is not reported.  Set it to the v2.0-ready commit.
-  ref_next: REPLACE_WITH_COMMIT_SHA
+  # The registry's v1.5.6 lane (scripts/build.py keys it on DUCKDB_VERSION ==
+  # v1.5.6) builds this ref, which must stay on the 1.5.6 code: 9fcea062 is
+  # the marc21 1.5.6 release, the last commit built and served for v1.5.6.
+  variegata: 9fcea0628f6c8853a5f8e96d4e789f08ba801f7f
 
 docs:
   hello_world: |
@@ -64,8 +63,10 @@ docs:
     and DuckDB FileSystem protocols (httpfs URLs — including SRU and OAI-PMH
     responses, whose envelopes are handled).  `read_z3950` retrieves records
     live from Z39.50 servers (Library of Congress, OCLC, most ILSes) with a
-    built-in dependency-free client.  Scans parallelise across and within
-    files.
+    built-in dependency-free client.  On DuckDB v2.0 the readers are
+    multi-file readers (lists of paths, `filename` and `file_index` columns,
+    `union_by_name`, `hive_partitioning`, parallel across files).  Scans
+    parallelise across and within files.
 
     ### Write
     `COPY ... TO (FORMAT marc | marcxml | mrk | marcjson)`.  ISO 2709 output

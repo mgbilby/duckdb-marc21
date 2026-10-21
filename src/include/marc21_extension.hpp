@@ -2,6 +2,8 @@
 
 #include "duckdb.hpp"
 
+#include "marc/compat.hpp"
+
 namespace marc {
 struct Record;
 }
@@ -19,6 +21,9 @@ struct MarcCopyReaders {
 	TableFunction marcxml;
 	TableFunction mrk;
 	TableFunction marcjson;
+	//! Batch-at-a-time callbacks for the binary MARC reader, which COPY ... FROM
+	//! reads ISO 2709 through.  Empty on v1.5.x.
+	MarcBatchCallbacks batch;
 };
 
 void RegisterMarcCopy(ExtensionLoader &loader, MarcCopyReaders readers);

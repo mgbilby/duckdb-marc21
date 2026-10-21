@@ -151,6 +151,9 @@ static unique_ptr<FunctionData> BindCommon(ClientContext &context, TableFunction
 	auto result = make_uniq<MarcBindData>();
 	result->path = input.inputs[0].GetValue<string>();
 	for (auto &kv : input.named_parameters) {
+		if (MarcBindSkips(kv.second)) {
+			continue;
+		}
 		auto name = StringUtil::Lower(MarcName(kv.first));
 		if (name == "encoding" && with_encoding) {
 			try {
@@ -396,7 +399,7 @@ static void PushRecordRows(const marc::Record &rec, int64_t record_no, const str
 //! Write one vector's worth of pending rows into the (projected) output.
 static void EmitSubfieldRows(std::deque<SubfieldRow> &pending, const vector<column_t> &column_ids, DataChunk &output) {
 	idx_t n = MinValue<idx_t>(pending.size(), STANDARD_VECTOR_SIZE);
-	output.SetCardinality(n);
+	MarcSetCardinality(output, n);
 	if (n == 0) {
 		return;
 	}
@@ -616,21 +619,21 @@ static void NestedScan(ClientContext &context, TableFunctionInput &data, DataChu
 		for (idx_t out_col = 0; out_col < global.column_ids.size(); out_col++) {
 			switch (global.column_ids[out_col]) {
 			case 0:
-				output.SetValue(out_col, n, Value::BIGINT(local.record_no));
+				MarcSetValue(output, out_col, n, Value::BIGINT(local.record_no));
 				break;
 			case 1:
-				output.SetValue(out_col, n, Value(local.path));
+				MarcSetValue(output, out_col, n, Value(local.path));
 				break;
 			case 2: {
 				auto cn = rec.ControlNumber();
-				output.SetValue(out_col, n, cn ? Value(*cn) : Value(LogicalType::VARCHAR));
+				MarcSetValue(output, out_col, n, cn ? Value(*cn) : Value(LogicalType::VARCHAR));
 				break;
 			}
 			case 3:
-				output.SetValue(out_col, n, Value(rec.leader));
+				MarcSetValue(output, out_col, n, Value(rec.leader));
 				break;
 			case 4:
-				output.SetValue(out_col, n, FieldsToValue(rec, bind));
+				MarcSetValue(output, out_col, n, FieldsToValue(rec, bind));
 				break;
 			default:
 				break;
@@ -638,7 +641,7 @@ static void NestedScan(ClientContext &context, TableFunctionInput &data, DataChu
 		}
 		n++;
 	}
-	output.SetCardinality(n);
+	MarcSetCardinality(output, n);
 }
 
 // ---------------------------------------------------------------------------
@@ -728,7 +731,7 @@ static void RawScan(ClientContext &context, TableFunctionInput &data, DataChunk 
 		}
 		n++;
 	}
-	output.SetCardinality(n);
+	MarcSetCardinality(output, n);
 }
 
 // ---------------------------------------------------------------------------
@@ -1089,15 +1092,21 @@ static void MarcSetMetrics(TableFunction &function) {
 #endif
 }
 
-//! Opt a binary reader into v2.0 batch-at-a-time scanning.  No-op on v1.5.x,
-//! which has no such callbacks.
-static void MarcSetBatchScan(TableFunction &function) {
+//! The v2.0 batch-at-a-time callbacks of a binary reader.  No-op on v1.5.x,
+//! which has no such callbacks.  On v2.0.0 they ride in
+//! TableFunctionMultiFileSettings (see compat.hpp), so they travel to the
+//! multi-file wrapper rather than staying on the TableFunction itself.
+static MarcBatchCallbacks MarcBatchCallbacksFor(bool binary_reader) {
+	MarcBatchCallbacks callbacks;
 #if MARC21_DUCKDB_V2
-	function.claim_batch = ScanClaimBatch;
-	function.finish_batch = ScanFinishBatch;
+	if (binary_reader) {
+		callbacks.claim_batch = ScanClaimBatch;
+		callbacks.finish_batch = ScanFinishBatch;
+	}
 #else
-	(void)function;
+	(void)binary_reader;
 #endif
+	return callbacks;
 }
 
 //! The macro a statement of the embedded SQL defines, for error messages.
@@ -1186,46 +1195,50 @@ void LoadInternal(ExtensionLoader &loader) {
 	// Every reader takes one VARCHAR path plus named parameters, which is the
 	// shape MarcRegisterReader needs: on v2.0 it hands them to the multi-file
 	// framework as single-file functions, on v1.5.x it registers them directly.
+	MarcBatchCallbacks batch = MarcBatchCallbacksFor(true);
 	TableFunction nested("read_marc", {LogicalType::VARCHAR}, NestedScan, NestedBind, NestedInitGlobal, ScanInitLocal);
-	nested.named_parameters["encoding"] = LogicalType::VARCHAR;
-	nested.named_parameters["tags"] = LogicalType::VARCHAR;
-	nested.named_parameters["ignore_errors"] = LogicalType::BOOLEAN;
+	MarcNameParameters(nested, {"path"});
+	MarcAddReaderOption(nested, "encoding", LogicalType::VARCHAR);
+	MarcAddReaderOption(nested, "tags", LogicalType::VARCHAR);
+	MarcAddReaderOption(nested, "ignore_errors", LogicalType::BOOLEAN);
 	nested.projection_pushdown = true;
 	nested.cardinality = RecordCardinality;
-	MarcSetBatchScan(nested);
 	MarcSetMetrics(nested);
 	copy_readers.marc = nested;
-	MarcRegisterReader(loader, std::move(nested), "read_marc", "MARC");
+	copy_readers.batch = batch;
+	MarcRegisterReader(loader, std::move(nested), "read_marc", "MARC", batch);
 
 	TableFunction subfields("read_marc_subfields", {LogicalType::VARCHAR}, SubfieldsScan, SubfieldsBind,
 	                        SubfieldsInitGlobal, SubfieldsInitLocal);
-	subfields.named_parameters["encoding"] = LogicalType::VARCHAR;
-	subfields.named_parameters["tags"] = LogicalType::VARCHAR;
-	subfields.named_parameters["ignore_errors"] = LogicalType::BOOLEAN;
+	MarcNameParameters(subfields, {"path"});
+	MarcAddReaderOption(subfields, "encoding", LogicalType::VARCHAR);
+	MarcAddReaderOption(subfields, "tags", LogicalType::VARCHAR);
+	MarcAddReaderOption(subfields, "ignore_errors", LogicalType::BOOLEAN);
 	subfields.projection_pushdown = true;
 	subfields.cardinality = SubfieldCardinality;
-	MarcSetBatchScan(subfields);
 	MarcSetMetrics(subfields);
-	MarcRegisterReader(loader, std::move(subfields), "read_marc_subfields", "MARC");
+	MarcRegisterReader(loader, std::move(subfields), "read_marc_subfields", "MARC", batch);
 
 	TableFunction raw("read_marc_raw", {LogicalType::VARCHAR}, RawScan, RawBind, RawInitGlobal, ScanInitLocal);
-	raw.named_parameters["encoding"] = LogicalType::VARCHAR;
+	MarcNameParameters(raw, {"path"});
+	MarcAddReaderOption(raw, "encoding", LogicalType::VARCHAR);
 	raw.projection_pushdown = true;
 	raw.cardinality = RecordCardinality;
-	MarcSetBatchScan(raw);
 	MarcSetMetrics(raw);
-	MarcRegisterReader(loader, std::move(raw), "read_marc_raw", "MARC");
+	MarcRegisterReader(loader, std::move(raw), "read_marc_raw", "MARC", batch);
 
 	TableFunction breaker("read_marc_breaker", {LogicalType::VARCHAR},
 	                      TextScan<marc::ParseBreaker, BREAKER_NAME, false>, TextBind, TextInitGlobal, TextInitLocal);
-	breaker.named_parameters["tags"] = LogicalType::VARCHAR;
+	MarcNameParameters(breaker, {"path"});
+	MarcAddReaderOption(breaker, "tags", LogicalType::VARCHAR);
 	breaker.projection_pushdown = true;
 	copy_readers.mrk = breaker;
 	MarcRegisterReader(loader, std::move(breaker), "read_marc_breaker", "MARC breaker");
 
 	TableFunction marcxml("read_marcxml", {LogicalType::VARCHAR}, TextScan<marc::ParseMarcXml, MARCXML_NAME, true>,
 	                      TextBind, TextInitGlobal, TextInitLocal);
-	marcxml.named_parameters["tags"] = LogicalType::VARCHAR;
+	MarcNameParameters(marcxml, {"path"});
+	MarcAddReaderOption(marcxml, "tags", LogicalType::VARCHAR);
 	marcxml.projection_pushdown = true;
 	copy_readers.marcxml = marcxml;
 	MarcRegisterReader(loader, std::move(marcxml), "read_marcxml", "MARCXML");
@@ -1233,20 +1246,23 @@ void LoadInternal(ExtensionLoader &loader) {
 	TableFunction marcjson("read_marcjson", {LogicalType::VARCHAR},
 	                       WholeFileScan<marc::ParseMarcJson, MARCJSON_NAME>, TextBind, TextInitGlobal,
 	                       WholeFileInitLocal);
-	marcjson.named_parameters["tags"] = LogicalType::VARCHAR;
+	MarcNameParameters(marcjson, {"path"});
+	MarcAddReaderOption(marcjson, "tags", LogicalType::VARCHAR);
 	marcjson.projection_pushdown = true;
 	copy_readers.marcjson = marcjson;
 	MarcRegisterReader(loader, std::move(marcjson), "read_marcjson", "MARC-in-JSON");
 
 	TableFunction aleph("read_alephseq", {LogicalType::VARCHAR}, WholeFileScan<marc::ParseAlephSeq, ALEPH_NAME>,
 	                    TextBind, TextInitGlobal, WholeFileInitLocal);
-	aleph.named_parameters["tags"] = LogicalType::VARCHAR;
+	MarcNameParameters(aleph, {"path"});
+	MarcAddReaderOption(aleph, "tags", LogicalType::VARCHAR);
 	aleph.projection_pushdown = true;
 	MarcRegisterReader(loader, std::move(aleph), "read_alephseq", "Aleph sequential");
 
 	TableFunction microlif("read_microlif", {LogicalType::VARCHAR}, WholeFileScan<marc::ParseMicroLif, MICROLIF_NAME>,
 	                       TextBind, TextInitGlobal, WholeFileInitLocal);
-	microlif.named_parameters["tags"] = LogicalType::VARCHAR;
+	MarcNameParameters(microlif, {"path"});
+	MarcAddReaderOption(microlif, "tags", LogicalType::VARCHAR);
 	microlif.projection_pushdown = true;
 	MarcRegisterReader(loader, std::move(microlif), "read_microlif", "MicroLIF");
 

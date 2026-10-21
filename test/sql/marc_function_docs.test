@@ -47,13 +47,23 @@ ORDER BY ALL;
 ----
 
 # A reader keeps its named parameters alongside the positional name, each
-# paired with its own type (the names are matched to the types by position)
-query II
-SELECT list_has_all(parameters, ['path', 'encoding', 'tags', 'ignore_errors']),
-       parameter_types[list_position(parameters, 'ignore_errors')]
-FROM marc_fns WHERE function_name = 'read_marc';
+# paired with its own type (the names are matched to the types by position).
+# On v2.0 the multi-file wrapper registers read_marc three times -- a single
+# path, a list, a variant -- and the list overload names its positional
+# parameter 'paths', so the invariant is asserted per overload as a count of
+# violations, which is zero on every engine however booleans render.
+query I
+SELECT count(*) FROM marc_fns WHERE function_name = 'read_marc'
+  AND NOT (list_has_all(parameters, ['encoding', 'tags', 'ignore_errors'])
+           AND len(list_filter(parameters, lambda p: p IN ('path', 'paths'))) = 1);
 ----
-true	BOOLEAN
+0
+
+query I
+SELECT count(*) FROM marc_fns WHERE function_name = 'read_marc'
+  AND parameter_types[list_position(parameters, 'ignore_errors')] != 'BOOLEAN';
+----
+0
 
 query II
 SELECT parameters[1:4], parameter_types[list_position(parameters, 'timeout')]

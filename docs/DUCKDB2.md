@@ -8,17 +8,17 @@ catalogue cheaper to keep in a `.duckdb` file. This page is what changes for
 cataloging work, and — just as importantly — what does not.
 
 **Version applicability.** The released extension is built against **DuckDB
-v1.5.6** and that is what `INSTALL marc21 FROM community` gives you. The
-capabilities marked **v2.0** below arrive when DuckDB v2.0 is released and the
-extension is rebuilt against it; the source already compiles both ways
-(`src/include/marc/compat.hpp`), and CI builds the v2.0 branch on demand, but
-nothing here is in the binary you have today. Check what you are on:
+v2.0.0** and that is what `INSTALL marc21 FROM community` gives you. The
+capabilities marked **v2.0** below are in the shipped binary; marc21 1.5.6,
+built against DuckDB v1.5.6, remains available to clients still on v1.5.6.
+The source compiles both ways (`src/include/marc/compat.hpp`), and CI keeps a
+v1.5.6 lane on demand. Check what you are on:
 
 ```sql
-SELECT version();          -- 'v1.5.6' → the v1.5 column below applies
+SELECT version();          -- 'v2.0.0' → the v2.0 column below applies
 ```
 
-| capability | v1.5.6 (shipped) | v2.0 |
+| capability | v1.5.6 | v2.0 (shipped) |
 |---|---|---|
 | glob patterns (`catalogue/*.mrc.gz`) | yes, expanded by the reader | yes, expanded by DuckDB |
 | gzip (`.mrc.gz`) | yes | yes |

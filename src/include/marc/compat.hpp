@@ -241,6 +241,129 @@ inline void MarcRegisterTable(ExtensionLoader &loader, FUNCTION_OR_SET function,
 }
 
 // ---------------------------------------------------------------------------
+// DataChunk writes
+// ---------------------------------------------------------------------------
+
+//! Set a chunk's row count after the child vectors were written directly.
+//! v1.5.x only has SetCardinality; v2.0.0 deprecates it in favour of
+//! CheckCardinality, but keeps its exact behavior under the name
+//! SetCardinalityUnsafe (check-then-set, no resize) - which is what a scan
+//! that writes the child vectors itself needs, so that is what this uses.
+inline void MarcSetCardinality(DataChunk &chunk, idx_t count) {
+#if MARC21_DUCKDB_V2
+	chunk.SetCardinalityUnsafe(count);
+#else
+	chunk.SetCardinality(count);
+#endif
+}
+
+//! Write a Value at an index of one column.  DataChunk::SetValue is
+//! deprecated on v2.0.0 in favour of writing the child vector; v1.5.x only
+//! has the DataChunk method, so this keeps one call site for both.
+inline void MarcSetValue(DataChunk &chunk, idx_t col, idx_t index, Value value) {
+#if MARC21_DUCKDB_V2
+	chunk.data[col].SetValue(index, value);
+#else
+	chunk.SetValue(col, index, value);
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// Named parameters and batch-at-a-time scanning
+// ---------------------------------------------------------------------------
+
+//! Give a reader's positional parameters real names.  v2.0's brace-list
+//! constructors fall back to positional-only parameters named col0..colN,
+//! which is what duckdb_functions() then reports - and what the catalog's
+//! parameter-name test refuses.  v1.5 reports the names a description
+//! carries (MarcNameTableParameters fills them), so there is nothing to do.
+inline void MarcNameParameters(TableFunction &function, std::initializer_list<const char *> names) {
+#if MARC21_DUCKDB_V2
+	auto &signature = function.GetSignature();
+	idx_t i = 0;
+	for (auto name : names) {
+		signature.GetParameter(i++).SetName(name);
+	}
+#else
+	(void)function;
+	(void)names;
+#endif
+}
+
+//! Add a named parameter to a table function.  v1.5.x keeps them in the
+//! named_parameters map; v2.0.0 removed that map.
+//!
+//! On v2.0 the shape depends on how the function reaches the catalog:
+//! a reader is wrapped by the multi-file framework, whose outer
+//! function takes options through a typed "**kwargs" schema
+//! (TableFunctionMultiFileWrapper::CreateFunction merges the wrapped
+//! function's schema into its own, and ParseNamedParameter routes a
+//! passed option to the wrapped bind) -- so a reader's options are
+//! declared as TypedKwargs, like parquet's.  A function registered
+//! as-is (read_z3950) has no "**kwargs" to ride in, so its options
+//! are keyword-only parameters -- and those need a default, because
+//! v2.0's binder refuses a call that leaves one without a value
+//! (ResolveArguments: "Missing value for parameter", surfaced as "No
+//! function matches"); a NULL of the parameter's type restores the
+//! implicit-optional semantics of the v1.5 map, and MarcBindSkips
+//! makes the bind side treat it as "not passed".
+//!
+//! MarcAddReaderOption declares a wrapped reader's option;
+//! MarcAddNamedParameter declares an unwrapped function's.
+inline void MarcAddReaderOption(TableFunction &function, const char *name, LogicalType type) {
+#if MARC21_DUCKDB_V2
+	auto &signature = function.GetSignature();
+	auto add_option = [&](TypedKwargs &options) { options.Add(name, std::move(type)); };
+	if (signature.GetTypedKwargs()) {
+		signature.ExtendTypedKwargs(add_option);
+	} else {
+		signature.WithTypedKwargs("options", add_option);
+	}
+#else
+	function.named_parameters[name] = std::move(type);
+#endif
+}
+
+inline void MarcAddNamedParameter(TableFunction &function, const char *name, LogicalType type) {
+#if MARC21_DUCKDB_V2
+	function.GetSignature().AddKeywordOnly(name, std::move(type), Value(type));
+#else
+	function.named_parameters[name] = std::move(type);
+#endif
+}
+
+//! Whether the bind loop should skip this named argument: on v2.0 it is the
+//! injected default for a parameter the caller did not pass.
+inline bool MarcBindSkips(const Value &value) {
+#if MARC21_DUCKDB_V2
+	return value.IsNull();
+#else
+	(void)value;
+	return false;
+#endif
+}
+
+//! Wire a binary reader into v2.0's batch-at-a-time scanning.  On v2.0.0
+//! the claim/finish callbacks are not fields of TableFunction: a single-file
+//! function is handed to the multi-file framework, and the callbacks go into
+//! TableFunctionMultiFileSettings, from where the wrapper drives them.
+//! MarcRegisterReader and MarcSetCopyFrom carry them through this struct.
+//! It is empty on v1.5.x, which has no such callbacks.
+struct MarcBatchCallbacks {
+#if MARC21_DUCKDB_V2
+	table_function_claim_batch_t claim_batch = nullptr;
+	table_function_finish_batch_t finish_batch = nullptr;
+#endif
+};
+
+#if MARC21_DUCKDB_V2
+inline void MarcApplyBatchCallbacks(const MarcBatchCallbacks &callbacks, TableFunctionMultiFileSettings &settings) {
+	settings.claim_batch = callbacks.claim_batch;
+	settings.finish_batch = callbacks.finish_batch;
+}
+#endif
+
+// ---------------------------------------------------------------------------
 // Multi-file scanning
 // ---------------------------------------------------------------------------
 
@@ -268,13 +391,15 @@ inline void MarcRegisterTable(ExtensionLoader &loader, FUNCTION_OR_SET function,
 //!
 //! `reader_type` is how the files are named in error messages.
 inline void MarcRegisterReader(ExtensionLoader &loader, TableFunction function, const char *name,
-                               const char *reader_type) {
+                               const char *reader_type,
+                               const MarcBatchCallbacks &batch_callbacks = MarcBatchCallbacks()) {
 #if MARC21_DUCKDB_V2
 	TableFunctionMultiFileSettings settings;
 	settings.reader_type = reader_type;
 	// Every marc21 reader has a fixed column list, so one file determines the
 	// schema and there is nothing to combine across files.
 	settings.maximum_sample_files = 1;
+	MarcApplyBatchCallbacks(batch_callbacks, settings);
 	MarcRegisterTable(
 	    loader,
 	    TableFunctionMultiFileWrapper::CreateFunctionSet(std::move(function), Identifier(name), std::move(settings)),
@@ -291,11 +416,13 @@ inline void MarcRegisterReader(ExtensionLoader &loader, TableFunction function, 
 //! the target table, and the framework maps the reader's columns onto them by
 //! name.  v1.5.x has no MultiFileBindCopy, so the FROM side is v2.0 only and
 //! COPY ... FROM there keeps reporting the format as write-only.
-inline void MarcSetCopyFrom(CopyFunction &function, TableFunction reader, const char *name, const char *reader_type) {
+inline void MarcSetCopyFrom(CopyFunction &function, TableFunction reader, const char *name, const char *reader_type,
+                            const MarcBatchCallbacks &batch_callbacks = MarcBatchCallbacks()) {
 #if MARC21_DUCKDB_V2
 	TableFunctionMultiFileSettings settings;
 	settings.reader_type = reader_type;
 	settings.maximum_sample_files = 1;
+	MarcApplyBatchCallbacks(batch_callbacks, settings);
 	function.copy_from_bind = TableFunctionMultiFileWrapper::MultiFileBindCopy;
 	function.copy_from_function =
 	    TableFunctionMultiFileWrapper::CreateFunction(std::move(reader), Identifier(name), std::move(settings));
@@ -445,8 +572,27 @@ inline void MarcRegisterScalar(ExtensionLoader &loader, ScalarFunction function)
 	function.SetFallible();
 #endif
 	auto name = MarcName(function.name);
+#if MARC21_DUCKDB_V2
+	// v2.0's duckdb_functions() reports parameter names from the signature,
+	// and the brace-list constructor names them col0..colN; the catalog
+	// documentation is where the real names live, so put them on the signature.
+	// A docs entry with no parameter list (macros, zero-argument functions)
+	// names nothing, and a signature whose parameter count disagrees with the
+	// docs is left alone rather than half-renamed.
+	auto descriptions = MarcFunctionDescriptions(name);
+	if (!descriptions.empty() && !descriptions[0].parameter_names.empty() &&
+	    descriptions[0].parameter_names.size() == function.GetSignature().GetParameterCount()) {
+		auto &signature = function.GetSignature();
+		for (idx_t i = 0; i < signature.GetParameterCount(); i++) {
+			signature.GetParameter(i).SetName(Identifier(descriptions[0].parameter_names[i]));
+		}
+	}
+	CreateScalarFunctionInfo info(std::move(function));
+	info.descriptions = std::move(descriptions);
+#else
 	CreateScalarFunctionInfo info(std::move(function));
 	info.descriptions = MarcFunctionDescriptions(name);
+#endif
 	info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 	loader.RegisterFunction(std::move(info));
 }

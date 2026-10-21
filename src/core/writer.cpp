@@ -21,7 +21,7 @@
 namespace marc {
 
 static void AppendNum(std::string &out, size_t v, int width) {
-	char buf[16];
+	char buf[24];
 	std::snprintf(buf, sizeof(buf), "%0*zu", width, v);
 	out.append(buf);
 }

@@ -54,6 +54,9 @@ static unique_ptr<FunctionData> Z3950Bind(ClientContext &context, TableFunctionB
 	result->database = input.inputs[2].GetValue<string>();
 	result->query = input.inputs[3].GetValue<string>();
 	for (auto &kv : input.named_parameters) {
+		if (MarcBindSkips(kv.second)) {
+			continue;
+		}
 		auto name = StringUtil::Lower(MarcName(kv.first));
 		if (name == "max_records") {
 			result->max_records = kv.second.GetValue<int32_t>();
@@ -109,16 +112,16 @@ static void Z3950Scan(ClientContext &, TableFunctionInput &data, DataChunk &outp
 	idx_t n = 0;
 	while (n < STANDARD_VECTOR_SIZE && state.next_row < state.records.size()) {
 		auto &rec = state.records[state.next_row];
-		output.SetValue(0, n, Value::BIGINT(static_cast<int64_t>(state.next_row) + 1));
-		output.SetValue(1, n, Value::BIGINT(state.hits));
+		MarcSetValue(output, 0, n, Value::BIGINT(static_cast<int64_t>(state.next_row) + 1));
+		MarcSetValue(output, 1, n, Value::BIGINT(state.hits));
 		auto cn = rec.ControlNumber();
-		output.SetValue(2, n, cn ? Value(*cn) : Value(LogicalType::VARCHAR));
-		output.SetValue(3, n, Value(rec.leader));
-		output.SetValue(4, n, MarcFieldsToValue(rec));
+		MarcSetValue(output, 2, n, cn ? Value(*cn) : Value(LogicalType::VARCHAR));
+		MarcSetValue(output, 3, n, Value(rec.leader));
+		MarcSetValue(output, 4, n, MarcFieldsToValue(rec));
 		state.next_row++;
 		n++;
 	}
-	output.SetCardinality(n);
+	MarcSetCardinality(output, n);
 }
 
 } // namespace
@@ -127,9 +130,10 @@ void RegisterMarcZ3950(ExtensionLoader &loader) {
 	TableFunction z3950("read_z3950",
 	                    {LogicalType::VARCHAR, LogicalType::INTEGER, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                    Z3950Scan, Z3950Bind, Z3950InitGlobal);
-	z3950.named_parameters["max_records"] = LogicalType::INTEGER;
-	z3950.named_parameters["timeout"] = LogicalType::INTEGER;
-	z3950.named_parameters["ignore_errors"] = LogicalType::BOOLEAN;
+	MarcNameParameters(z3950, {"host", "port", "database", "query"});
+	MarcAddNamedParameter(z3950, "max_records", LogicalType::INTEGER);
+	MarcAddNamedParameter(z3950, "timeout", LogicalType::INTEGER);
+	MarcAddNamedParameter(z3950, "ignore_errors", LogicalType::BOOLEAN);
 	MarcRegisterTable(loader, std::move(z3950), "read_z3950");
 }
 

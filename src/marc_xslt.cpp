@@ -90,15 +90,15 @@ void XsltCatalogScan(ClientContext &, TableFunctionInput &data, DataChunk &outpu
 	idx_t n = 0;
 	while (n < STANDARD_VECTOR_SIZE && state.next_row < marc::XSLT_SHEET_COUNT) {
 		auto &sheet = marc::XSLT_SHEETS[state.next_row];
-		output.SetValue(0, n, Value(sheet.alias));
-		output.SetValue(1, n, Value(sheet.path));
-		output.SetValue(2, n, Value(sheet.source_format));
-		output.SetValue(3, n, Value(sheet.target_format));
-		output.SetValue(4, n, Value(sheet.description));
+		MarcSetValue(output, 0, n, Value(sheet.alias));
+		MarcSetValue(output, 1, n, Value(sheet.path));
+		MarcSetValue(output, 2, n, Value(sheet.source_format));
+		MarcSetValue(output, 3, n, Value(sheet.target_format));
+		MarcSetValue(output, 4, n, Value(sheet.description));
 		state.next_row++;
 		n++;
 	}
-	output.SetCardinality(n);
+	MarcSetCardinality(output, n);
 }
 
 // ---------------------------------------------------------------------------

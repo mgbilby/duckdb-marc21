@@ -104,7 +104,7 @@ static void TestJsonDom() {
 	CHECK(a && a->type == JsonValue::Type::ARR && a->arr.size() == 3);
 	CHECK(a->arr[0].type == JsonValue::Type::NUM);
 	CHECK_EQ(a->arr[1].str, std::string("-2.5e3"));
-	CHECK_EQ(a->arr[2].str, std::string("x\né😀"));
+	CHECK_EQ(a->arr[2].str, std::string("x\né𐍈"));
 	CHECK(v.Get("b")->boolean);
 	CHECK(v.Get("c")->type == JsonValue::Type::NUL);
 	CHECK(v.Get("missing") == nullptr);
@@ -129,8 +129,8 @@ static void TestJsonDom() {
 	CHECK(second.type == JsonValue::Type::ARR);
 	CHECK_EQ(two.substr(pos), std::string(" "));
 
-	CHECK_EQ(EscapeJsonString("a\"b\\c/d\n\t\r\b\f\x01é😀"),
-	         std::string("a\\\"b\\\\c/d\\n\\t\\r\\b\\f\\u0001é😀"));
+	CHECK_EQ(EscapeJsonString("a\"b\\c/d\n\t\r\b\f\x01é𐍈"),
+	         std::string("a\\\"b\\\\c/d\\n\\t\\r\\b\\f\\u0001é𐍈"));
 }
 
 // ---- MARC-in-JSON ----------------------------------------------------------

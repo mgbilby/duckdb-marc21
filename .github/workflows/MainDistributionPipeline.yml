@@ -1,14 +1,14 @@
 # Standard DuckDB community-extension pipeline (C++ / CMake variant),
 # mirroring duckdb/extension-template.  DuckDB, the workflow and the
-# submodules are all pinned at v1.5.6 for the released extension.
+# submodules are all pinned at v2.0.0 for the released extension.  The
+# registry's own build.yml pairs v2.0.0 with the extension-ci-tools
+# v2.0-cyanoptera branch (upstream has cut no v2.0.0 ci-tools tag yet),
+# so this pipeline pins the same pair.
 #
-# A second job builds against the DuckDB v2.0 pre-release so the v2.0 port can
-# be checked before the release lands.  It is deliberately workflow_dispatch
-# only: v2.0 is a moving branch and extension-ci-tools has no v2.0 tag yet
-# (community-extensions' own build_next.yml pairs v2.0-cyanoptera with
-# ci_tools_version: main), so a red run there says nothing about the shipped
-# extension and must not gate pushes.  Drop the `if:` to run it on every push
-# once upstream cuts a stable v2.0 ci-tools branch.
+# A second job keeps the v1.5.6 lane alive: the community registry still
+# serves marc21 1.5.6 to DuckDB v1.5.6 clients from the variegata ref, and
+# a moving main must not regress it.  It is workflow_dispatch only for the
+# same reason the v2.0 job used to be: it must not gate pushes.
 name: Main Extension Distribution Pipeline
 on:
   push:
@@ -16,23 +16,23 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref || '' }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref }}
   cancel-in-progress: true
 
 jobs:
   duckdb-stable-build:
     name: Build extension binaries
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v2.0-cyanoptera
+    with:
+      duckdb_version: v2.0.0
+      ci_tools_version: v2.0-cyanoptera
+      extension_name: marc21
+
+  duckdb-legacy-build:
+    name: Build against DuckDB v1.5.6 (manual)
+    if: github.event_name == 'workflow_dispatch'
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5.6
     with:
       duckdb_version: v1.5.6
       ci_tools_version: v1.5.6
-      extension_name: marc21
-
-  duckdb-next-build:
-    name: Build against DuckDB v2.0 pre-release (manual)
-    if: github.event_name == 'workflow_dispatch'
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@main
-    with:
-      duckdb_version: v2.0-cyanoptera
-      ci_tools_version: main
       extension_name: marc21
