@@ -5,6 +5,7 @@
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/mgbilby/duckdb-marc21/.github%2Fworkflows%2FMainDistributionPipeline.yml)
 [![DuckDB](https://img.shields.io/static/v1?label=duckdb&message=v2.0.0%2B&color=blue)](https://github.com/duckdb/duckdb/releases)
 [![Community downloads per week](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fcommunity-extensions.duckdb.org%2Fdownloads-last-week.json&query=%24.marc21&label=downloads%2Fweek&color=brightgreen)](https://duckdb.org/community_extensions/download_metrics)
+[![Total downloads](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmgbilby%2Fduckdb-marc21%2Fmain%2Fstats%2Ftotal-downloads.json&query=%24.marc21&label=downloads%2Ftotal&color=blue)](https://duckdb.org/community_extensions/download_metrics)
 
 Read, write, validate, edit, and analyze [MARC 21](https://www.loc.gov/marc/bibliographic/)
 bibliographic data with DuckDB, using filetypes, APIs and catalogs you already know.

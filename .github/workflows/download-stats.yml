@@ -1,0 +1,39 @@
+name: Update total download stats
+
+on:
+  schedule:
+    - cron: '0 4 * * 1'   # every Monday 04:00 UTC, after DuckDB publishes weekly stats
+  workflow_dispatch:       # allow manual runs
+
+permissions:
+  contents: write
+
+jobs:
+  update-stats:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Install DuckDB CLI
+        run: |
+          curl -fSL https://github.com/duckdb/duckdb/releases/latest/download/duckdb-cli-linux-amd64.tar.gz -o duckdb-cli.tar.gz
+          tar -xzf duckdb-cli.tar.gz
+          ./duckdb --version   # fails the step immediately if the binary is bad
+
+      - name: Compute total downloads
+        run: |
+          mkdir -p stats
+          TOTAL=$(./duckdb -noheader -list < stats/queries/total_downloads.sql | xargs)
+          STAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          printf '{\n  "marc21": %s,\n  "_last_update": "%s"\n}\n' "$TOTAL" "$STAMP" > stats/total-downloads.json
+          cat stats/total-downloads.json
+
+      - name: Commit stats if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add stats/total-downloads.json
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "chore: update total download stats"
+          git push
