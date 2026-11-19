@@ -5,6 +5,12 @@ PROJ_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 EXT_NAME=marc21
 EXT_CONFIG=${PROJ_DIR}extension_config.cmake
 
+# DuckDB 2.0's default CLI profile emits -march=x86-64-v3 on Linux amd64,
+# SIGILLing pre-Haswell CPUs (issue #2 against the production repo); the
+# EXTENSION profile pins the x86-64-v2 baseline.  ?= lets CI-provided
+# EXT_FLAGS (windows) win.
+EXT_FLAGS ?= -DDUCKDB_OPTIMIZATION_PROFILE=EXTENSION
+
 include extension-ci-tools/makefiles/duckdb_extension.Makefile
 
 # Convenience targets beyond the shared makefile

@@ -387,9 +387,9 @@ docs/REFERENCE.md:
 
 ```sql
 SELECT hits, marc_subfield(fields, '245', 'a')
-FROM read_z3950('z3950.loc.gov', 7090, 'VOYAGER', '@attr 1=7 0316769487');
+FROM read_z3950('lx2.loc.gov', 210, 'LCDB', '@attr 1=7 9780813200835');
 
-SELECT * FROM marc_readsru('https://lx2.loc.gov:210/lcdb',
+SELECT * FROM marc_readsru('https://lx2.loc.gov/sru/lcdb',
                            'dc.title = "moby dick"', 5);
 
 SELECT * FROM marc_readoai('https://example.org/oai', 'marc21', NULL);

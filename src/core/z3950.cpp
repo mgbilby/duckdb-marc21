@@ -252,7 +252,8 @@ std::vector<uint32_t> ParseOidContent(std::string_view content) {
 
 //! Parse identifier + length octets at the start of `data`.  Returns false
 //! when more bytes are needed to complete the header; throws on indefinite
-//! length and other malformed headers.
+//! length (normalised away upstream by ElementExtent/Definitize) and other
+//! malformed headers.
 static bool TryHeader(std::string_view data, Tag &tag, size_t &content_off, size_t &content_len) {
 	size_t pos = 0;
 	if (data.empty()) {
@@ -284,7 +285,7 @@ static bool TryHeader(std::string_view data, Tag &tag, size_t &content_off, size
 	}
 	uint8_t l = static_cast<uint8_t>(data[pos++]);
 	if (l == 0x80) {
-		throw MarcError("BER indefinite length is unsupported (v1 handles definite-length encodings only)");
+		throw MarcError("BER indefinite length reached the Reader (framing should have normalised it)");
 	}
 	if (l < 0x80) {
 		content_len = l;
@@ -306,16 +307,156 @@ static bool TryHeader(std::string_view data, Tag &tag, size_t &content_off, size
 	return true;
 }
 
+//! Header parse that tolerates the indefinite length form (X.690 8.1.3.6:
+//! length octet 0x80, content closed by two zero octets) instead of throwing.
+//! The Reader stays definite-only: the receive path normalises with
+//! Definitize below before parsing.  Returns false when more header bytes
+//! are needed; `id_len` is the identifier-octet count, for re-emitting the
+//! tag unchanged during normalisation.
+static bool TryHeaderAny(std::string_view data, size_t &id_len, size_t &content_off, size_t &content_len,
+                         bool &indefinite) {
+	indefinite = false;
+	id_len = 0;
+	content_off = 0;
+	content_len = 0;
+	size_t pos = 0;
+	if (data.empty()) {
+		return false;
+	}
+	uint8_t b = static_cast<uint8_t>(data[pos++]);
+	bool constructed = (b & 0x20) != 0;
+	id_len = 1;
+	uint32_t num = b & 0x1F;
+	if (num == 0x1F) { // high-tag-number form
+		num = 0;
+		while (true) {
+			if (pos >= data.size()) {
+				return false;
+			}
+			uint8_t o = static_cast<uint8_t>(data[pos++]);
+			if (num >> 25) {
+				throw MarcError("BER tag number exceeds 32 bits");
+			}
+			num = (num << 7) | (o & 0x7F);
+			if (!(o & 0x80)) {
+				break;
+			}
+		}
+		id_len = pos;
+	}
+	if (pos >= data.size()) {
+		return false;
+	}
+	uint8_t l = static_cast<uint8_t>(data[pos++]);
+	if (l == 0x80) {
+		// X.690 reserves the indefinite form for constructed elements.
+		if (!constructed) {
+			throw MarcError("BER indefinite length on a primitive element");
+		}
+		indefinite = true;
+		content_off = pos;
+		return true;
+	}
+	if (l < 0x80) {
+		content_len = l;
+	} else {
+		int n = l & 0x7F;
+		if (n > 8) {
+			throw MarcError("BER length exceeds 64 bits");
+		}
+		if (pos + static_cast<size_t>(n) > data.size()) {
+			return false;
+		}
+		size_t v = 0;
+		for (int i = 0; i < n; i++) {
+			v = (v << 8) | static_cast<uint8_t>(data[pos++]);
+		}
+		content_len = v;
+	}
+	content_off = pos;
+	return true;
+}
+
+//! Byte size of the complete BER element at the head of `data`, counting the
+//! end-of-contents octets of any indefinite-length element.  Returns 0 when
+//! `data` holds only a prefix; throws on malformed headers.  YAZ gateways
+//! (the lc server among them) answer with whole-PDU indefinite lengths, so
+//! receive framing must be able to see where such an APDU ends.
+static size_t ElementExtent(std::string_view data, int depth) {
+	if (depth > 64) {
+		throw MarcError("BER nesting exceeds 64 levels");
+	}
+	size_t id_len = 0, off = 0, len = 0;
+	bool indef = false;
+	if (!TryHeaderAny(data, id_len, off, len, indef)) {
+		return 0;
+	}
+	if (!indef) {
+		if (len > data.size() - off) {
+			return 0;
+		}
+		return off + len;
+	}
+	size_t pos = off;
+	while (true) {
+		if (data.size() - pos < 2) {
+			return 0; // end-of-contents octets not arrived yet
+		}
+		if (data[pos] == '\0' && data[pos + 1] == '\0') {
+			return pos + 2;
+		}
+		size_t child = ElementExtent(data.substr(pos), depth + 1);
+		if (child == 0) {
+			return 0;
+		}
+		pos += child;
+	}
+}
+
+//! Re-encode one complete BER element (ElementExtent has vetted it) with
+//! every indefinite length made definite and every end-of-contents octet
+//! pair dropped, so the definite-only Reader can walk the result.  Definite
+//! input passes through unchanged.
+static std::string Definitize(std::string_view data, int depth) {
+	if (depth > 64) {
+		throw MarcError("BER nesting exceeds 64 levels");
+	}
+	size_t id_len = 0, off = 0, len = 0;
+	bool indef = false;
+	if (!TryHeaderAny(data, id_len, off, len, indef)) {
+		throw MarcError("BER element is incomplete");
+	}
+	if (!indef) {
+		return std::string(data);
+	}
+	std::string out(data.substr(0, id_len)); // re-emit the identifier octets
+	std::string content;
+	size_t pos = off;
+	while (true) {
+		if (data.size() - pos < 2) {
+			throw MarcError("BER indefinite element is missing its end-of-contents octets");
+		}
+		if (data[pos] == '\0' && data[pos + 1] == '\0') {
+			break;
+		}
+		size_t child = ElementExtent(data.substr(pos), depth + 1);
+		if (child == 0) {
+			throw MarcError("BER indefinite element is missing its end-of-contents octets");
+		}
+		content += Definitize(data.substr(pos, child), depth + 1);
+		pos += child;
+	}
+	AppendLength(out, content.size());
+	out += content;
+	return out;
+}
+
 bool FrameTlv(std::string_view buffer, size_t &total_length) {
-	Tag tag;
-	size_t off = 0, len = 0;
-	if (!TryHeader(buffer, tag, off, len)) {
+	size_t extent = ElementExtent(buffer, 0);
+	if (extent == 0) {
 		return false;
 	}
-	if (len > buffer.size() - off) {
-		return false;
-	}
-	total_length = off + len;
+	total_length = extent;
 	return true;
 }
 
@@ -834,7 +975,9 @@ std::string ReadApdu(Z3950Transport &t, std::string &buf) {
 	}
 	std::string apdu = buf.substr(0, total);
 	buf.erase(0, total);
-	return apdu;
+	// YAZ gateways answer with indefinite-length BER; normalise to the
+	// definite form the Reader understands.
+	return ber::Definitize(apdu, 0);
 }
 
 //! Read an APDU and check the PDU tag; hands back the APDU bytes (owning) —

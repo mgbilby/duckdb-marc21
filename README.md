@@ -85,7 +85,7 @@ TO 'out.mrc' (FORMAT marc, ENCODING 'marc8');
 
 -- Retrieve straight from a Z39.50 server (LC, OCLC, most ILSes)
 SELECT hits, marc_subfield(fields, '245', 'a') AS title
-FROM read_z3950('z3950.loc.gov', 7090, 'VOYAGER', '@attr 1=7 0316769487');
+FROM read_z3950('lx2.loc.gov', 210, 'LCDB', '@attr 1=7 9780813200835');
 ```
 
 Full documentation for all the functions can be found in [docs/REFERENCE.md](docs/REFERENCE.md). Workflow recipes (KBART loads, authority flips, heading-change impact, link audits, fuzzy dedupe) are in [docs/RECIPES.md](docs/RECIPES.md), the FOLIO connector pattern in [docs/FOLIO.md](docs/FOLIO.md), and planned features in [docs/ROADMAP.md](docs/ROADMAP.md).

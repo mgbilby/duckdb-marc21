@@ -265,10 +265,11 @@ static void TestMalformedBer() {
 		Tag tag;
 		CHECK(!CaughtMessage([&] { r.Next(tag); }).empty());
 	}
-	// Indefinite length is rejected with a clear message (documented v1 limit).
+	// Indefinite length on a PRIMITIVE element is malformed BER (X.690
+	// reserves it for constructed elements) and still throws.
 	{
 		size_t total = 0;
-		std::string msg = CaughtMessage([&] { ber::FrameTlv(std::string("\x30\x80\x00\x00", 4), total); });
+		std::string msg = CaughtMessage([&] { ber::FrameTlv(std::string("\x04\x80\x00\x00", 4), total); });
 		CHECK(Contains(msg, "indefinite"));
 	}
 	// Reader::Expect flags the wrong tag.
@@ -394,10 +395,40 @@ static void TestTruncatedApdu() {
 }
 
 static void TestIndefiniteLengthApdu() {
+	// YAZ gateways (the lc server among them) wrap each response PDU in
+	// indefinite-length BER: length octet 0x80, content, end-of-contents
+	// octets.  Re-head a definite APDU's content with the same tag and 0x80.
+	auto indefinite = [](const std::string &apdu) {
+		size_t p = 1;
+		uint8_t l = static_cast<uint8_t>(apdu[p]);
+		p += 1 + (l < 0x80 ? 0 : l & 0x7F);
+		return apdu.substr(0, 1) + std::string("\x80", 1) + apdu.substr(p) + std::string("\x00\x00", 2);
+	};
+	// Framing: every strict prefix of a wrapped APDU needs more bytes; the
+	// whole thing frames exactly, alone and concatenated.
+	std::string init = indefinite(InitResponseApdu(true));
+	size_t total = 0;
+	for (size_t cut = 0; cut < init.size(); cut++) {
+		CHECK(!ber::FrameTlv(init.substr(0, cut), total));
+	}
+	CHECK(ber::FrameTlv(init, total));
+	CHECK_EQ(total, init.size());
+	CHECK(ber::FrameTlv(init + init, total));
+	CHECK_EQ(total, init.size());
+	// The full flow over YAZ-shaped responses delivers parseable records.
+	std::string rec1 = FakeIso2709("z001", "In an indefinite wrapper");
+	std::string rec2 = FakeIso2709("z002", "Still dinosaur bones");
 	MockTransport t;
-	t.script.push_back(std::string("\xB5\x80\x00\x00", 4)); // [21] with indefinite length
-	std::string msg = CaughtMessage([&] { Z3950Search(t, "db", "term", 5); });
-	CHECK(Contains(msg, "indefinite"));
+	t.script.push_back(indefinite(InitResponseApdu(true)) + indefinite(SearchResponseApdu(2, true)));
+	t.script.push_back(indefinite(PresentResponseApdu({rec1, rec2}, 3)));
+	Z3950Result res = Z3950Search(t, "LCDB", "@attr 1=7 9780813200835", 10);
+	CHECK_EQ(res.hit_count, 2);
+	CHECK_EQ(res.raw_records.size(), 2u);
+	Record parsed1 = ParseRecord(res.raw_records[0], Encoding::AUTO);
+	Record parsed2 = ParseRecord(res.raw_records[1], Encoding::AUTO);
+	CHECK_EQ(*parsed1.ControlNumber(), std::string("z001"));
+	CHECK_EQ(*parsed2.ControlNumber(), std::string("z002"));
+	CHECK_EQ(parsed2.fields[1].subfields[0].value, std::string("In an indefinite wrapper"));
 }
 
 static void TestSearchDiagnostic() {

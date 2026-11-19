@@ -36,3 +36,4 @@ jobs:
       duckdb_version: v1.5.6
       ci_tools_version: v1.5.6
       extension_name: marc21
+

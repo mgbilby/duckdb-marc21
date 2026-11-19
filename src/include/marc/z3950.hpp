@@ -8,15 +8,18 @@
 //! Honest limitations (v1):
 //!  * No live-server test is possible in this build environment; the protocol
 //!    flow is exercised only against a scripted mock transport
-//!    (test/cpp/z3950_test.cpp).  Behaviour against real servers such as
-//!    z3950.loc.gov:7090/Voyager is untested.
+//!    (test/cpp/z3950_test.cpp).  Behaviour against live servers has since been spot-checked: the lc
+//!    gateway (lx2.loc.gov:210/LCDB) accepts the association, and its
+//!    indefinite-length responses parse; record fetches are exercised
+//!    against the mock.
 //!  * Query language: a single term with optional numeric Bib-1 attributes —
 //!    no boolean operators, proximity, truncation or multi-term queries.
 //!  * No authentication: idAuthentication is never sent.
 //!  * USMARC (OID 1.2.840.10003.5.10) is the only record syntax requested,
 //!    and the only one accepted back.
-//!  * BER subset: definite lengths only; indefinite-length encodings are
-//!    rejected with MarcError.
+//!  * BER subset: requests are emitted with definite lengths; received
+//!    indefinite-length APDUs (YAZ gateways send them) are framed and
+//!    normalised to definite form before the Reader walks them.
 //!
 //! Query language (tiny prefix subset, inspired by the common @attr syntax):
 //!   query := attr* term
@@ -90,9 +93,11 @@ std::string BitStringContent(const std::vector<uint32_t> &set_bits);
 int64_t ParseIntegerContent(std::string_view content);
 std::vector<uint32_t> ParseOidContent(std::string_view content);
 
-//! Framing: true when `buffer` begins with one complete definite-length TLV
-//! (total size, header included, in `total_length`); false when more bytes
-//! are needed.  Throws MarcError on indefinite length (unsupported in v1).
+//! Framing: true when `buffer` begins with one complete TLV, definite- or
+//! indefinite-length alike (an indefinite element counts its
+//! end-of-contents octets; total size, headers included, in
+//! `total_length`); false when more bytes are needed.  Throws MarcError
+//! on malformed headers.
 bool FrameTlv(std::string_view buffer, size_t &total_length);
 
 //! Sequential TLV reader over a byte range (typically the content octets of a

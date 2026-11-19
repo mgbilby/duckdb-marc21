@@ -16,7 +16,7 @@ value produced by `read_marc()` and accepted by `COPY (FORMAT marc...)`.
 | `marc_readnestedxml(path)` | record | the `read_marc` nested shape over `read_marcxml` |
 | `marc_readoai(base, [metadata_prefix], [set_])` | subfield | OAI-PMH ListRecords, one response page; page onward with `marc_readoai_page` |
 | `marc_readoai_page(base, resumption_token)` | subfield | OAI-PMH ListRecords follow-up page for a resumptionToken (LOAD httpfs); loop pattern in docs/LINKING.md |
-| `marc_readsru(base, query, [max_records])` | subfield | builds an SRU searchRetrieve URL over `read_marcxml` (LOAD httpfs) |
+| `marc_readsru(base, query, [max_records])` | subfield | builds an SRU searchRetrieve URL over `read_marcxml` (LOAD httpfs); some gateways reject httpfs's initial HEAD probe with 500 - curl the searchRetrieve URL into a file and `read_marcxml` that instead |
 | `read_alephseq(path, [tags])` | subfield | Aleph sequential |
 | `read_marc(path, [encoding], [tags], [ignore_errors])` | record | nested `fields`; glob + gzip; parallel across and within files |
 | `read_marc_breaker(path, [tags])` | subfield | `.mrk` mnemonic text; streamed |
@@ -72,14 +72,17 @@ Version applicability, row-group pruning and storage: [DUCKDB2.md](DUCKDB2.md).
 
 An independently implemented Z39.50-1995 client (Init → Search → Present, Type-1 RPN with
 Bib-1 attributes, USMARC syntax) over plain TCP — no external dependencies.
-Works against the Library of Congress (`z3950.loc.gov`, 7090, `VOYAGER`) and
-most ILS servers. One row per returned record in the `read_marc` nested shape
+Works against the Library of Congress (`lx2.loc.gov`, 210, `LCDB`), whose
+YAZ bridge answers in the indefinite-length BER form (framed and
+normalised automatically on receive), and most ILS servers.  The client
+requests the USMARC record syntax; servers answering with any other
+syntax are rejected. One row per returned record in the `read_marc` nested shape
 plus a `hits` column (the server's total); `max_records` defaults to 10,
 `timeout` (seconds) to 15. Queries are a term with optional `@attr` pairs:
 
 ```sql
 SELECT hits, marc_subfield(fields, '245', 'a') AS title
-FROM read_z3950('z3950.loc.gov', 7090, 'VOYAGER', '@attr 1=7 0316769487');
+FROM read_z3950('lx2.loc.gov', 210, 'LCDB', '@attr 1=7 9780813200835');
 ```
 
 Useful Bib-1 use attributes: `1=4` title, `1=7` ISBN, `1=12` local number,
