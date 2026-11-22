@@ -1,8 +1,8 @@
 # Standard DuckDB community-extension pipeline (C++ / CMake variant),
 # mirroring duckdb/extension-template.  DuckDB, the workflow and the
-# submodules are all pinned at v2.0.0 for the released extension.  The
-# registry's own build.yml pairs v2.0.0 with the extension-ci-tools
-# v2.0-cyanoptera branch (upstream has cut no v2.0.0 ci-tools tag yet),
+# submodules are all pinned at v2.0.1 for the released extension.  The
+# registry's own build.yml pairs v2.0.1 with the extension-ci-tools
+# v2.0-cyanoptera branch (upstream has cut no v2.0.1 ci-tools tag yet),
 # so this pipeline pins the same pair.
 #
 # A second job keeps the v1.5.6 lane alive: the community registry still
@@ -24,7 +24,7 @@ jobs:
     name: Build extension binaries
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v2.0-cyanoptera
     with:
-      duckdb_version: v2.0.0
+      duckdb_version: v2.0.1
       ci_tools_version: v2.0-cyanoptera
       extension_name: marc21
 
